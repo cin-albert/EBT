@@ -166,3 +166,19 @@ def test_dataset_refuses_inference_mode(tmp_path):
     hparams.execution_mode = "inference"
     with pytest.raises(ValueError, match="pretrain"):
         RedPajamaSubsetDataset(hparams)
+
+
+def test_dataset_refuses_subset_whose_rebuild_crashed(tmp_path, tokenizer):
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset, SubsetWriter, subset_dir
+    _build_in_place(tmp_path, tokenizer, ["a short doc here", LONG_TEXT])
+    SubsetWriter(subset_dir(str(tmp_path), TOKENIZER_NAME, 17), capacity=100, max_length=17)  # rebuild starts, then crashes
+    with pytest.raises(FileNotFoundError, match="python -m data.nlp.pajama_subset"):
+        RedPajamaSubsetDataset(_subset_hparams(tmp_path))
+
+
+def test_dataset_refuses_inconsistent_files(tmp_path, tokenizer):
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset, subset_dir
+    _build_in_place(tmp_path, tokenizer, ["a short doc here", LONG_TEXT])
+    np.save(os.path.join(subset_dir(str(tmp_path), TOKENIZER_NAME, 17), "lengths.npy"), np.array([4], dtype=np.int16))
+    with pytest.raises(ValueError, match="inconsistent"):
+        RedPajamaSubsetDataset(_subset_hparams(tmp_path))

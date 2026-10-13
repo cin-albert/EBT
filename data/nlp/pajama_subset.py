@@ -96,6 +96,9 @@ def tokenize_batch(tokenizer, texts, max_length):
 class SubsetWriter:
     def __init__(self, out_dir, capacity, max_length):
         os.makedirs(out_dir, exist_ok=True)
+        meta_path = os.path.join(out_dir, "meta.json")
+        if os.path.exists(meta_path):
+            os.remove(meta_path)  # a rebuild that crashes must not leave an old meta pointing at a half-written memmap
         self.out_dir, self.capacity, self.max_length = out_dir, capacity, max_length
         self.input_ids = np.lib.format.open_memmap(
             os.path.join(out_dir, "input_ids.npy"), mode="w+", dtype=np.uint16, shape=(capacity, max_length)
@@ -209,6 +212,9 @@ class RedPajamaSubsetDataset(Dataset):
             raise ValueError(f"{self.root} was built for max_length={meta['max_length']}, tokenizer={meta['tokenizer']}")
         self.num_docs = meta["num_docs"]
         self.lengths = np.load(os.path.join(self.root, "lengths.npy"))
+        rows, width = np.load(os.path.join(self.root, "input_ids.npy"), mmap_mode="r").shape
+        if len(self.lengths) != self.num_docs or rows < self.num_docs or width != max_length:
+            raise ValueError(f"{self.root} is inconsistent (meta num_docs={self.num_docs}, lengths={len(self.lengths)}, input_ids={rows}x{width}); rebuild it")
         self._input_ids = None  # opened lazily so every DataLoader worker maps the file itself
 
     def __len__(self):
