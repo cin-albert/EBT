@@ -15,7 +15,9 @@ TOKENIZER_NAME = "EleutherAI/gpt-neox-20b"
 @pytest.fixture(scope="session")
 def tokenizer():
     from transformers import AutoTokenizer
-    return AutoTokenizer.from_pretrained(TOKENIZER_NAME, clean_up_tokenization_spaces=False)
+    tok = AutoTokenizer.from_pretrained(TOKENIZER_NAME, clean_up_tokenization_spaces=False)
+    tok.pad_token_id = tok.eos_token_id  # same as RedPajamaDataset / NLP_HF_Collator
+    return tok
 
 
 def write_shard(root, tag, texts):
