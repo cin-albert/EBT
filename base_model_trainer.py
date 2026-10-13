@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import transforms
 from torchvision.transforms import ToPILImage
 from torch.distributed import all_reduce
-import wandb
+# import wandb
+import trackio as wandb
 import gc
 
 from data.vid.ucf_dataloader import *

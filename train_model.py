@@ -9,9 +9,12 @@ import random
 from datetime import datetime
 from pytorch_lightning import seed_everything
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import CSVLogger
+from utils.trackio_logger import TrackioLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, ModelSummary
 import sys
-import wandb
+# import wandb
+import trackio as wandb
 import ast
 import math
 from tqdm import tqdm
@@ -27,15 +30,14 @@ from utils import text_logger
 from base_model_trainer import *
 from inference.nlp.eval import nlp_eval_acc
 
-@rank_zero_only # to ensure only one wandb run is created, if didnt do that then each GPU would create its own wandb run
-def setup_wandb(args): 
-    import wandb
-    if wandb.run is None:
-        run = wandb.init(dir="logs/", name=f'{args.run_name}', entity=f'{args.wandb_entity}', project=f'{args.wandb_project}', mode = "offline" if args.wandb_offline else "online") # this is solely used to force wandb to start tracking stdout in logs
-        wandb.define_metric("__init", hidden=True)
-        wandb.define_metric("*", step_metric="trainer/global_step") # default x axis is trainer/global_step
-        return run
-    return None
+def build_loggers(args):
+    """trackio for live curves + CSV for collect_results.py; replaces the old wandb setup."""
+    csv_logger = CSVLogger(save_dir="logs/csv", name=args.run_name)
+    if args.no_wandb:
+        return None, csv_logger
+    if args.wandb_watch:
+        raise ValueError("--wandb_watch is not supported with TrackioLogger (no watch/Histogram in trackio)")
+    return TrackioLogger(project=args.wandb_project, name=args.run_name), csv_logger
 
 def main(args):
     if(args.is_random_seed):
@@ -50,15 +52,8 @@ def main(args):
 
     os.makedirs("./logs", exist_ok=True)
 
-    wandb_logger = None
-    if not args.no_wandb: # put this early so can capture text logs later
-        run = None # need both lines since setup_wandb is a @rank_zero_only function
-        run = setup_wandb(args)
-
-        wandb_logger = WandbLogger(save_dir="logs/", name=f'{args.run_name}', entity=f'{args.wandb_entity}', project=f'{args.wandb_project}', offline = args.wandb_offline, experiment=run)
-        if args.wandb_tags != None:
-            wandb_logger.experiment.tags = args.wandb_tags
-    else:
+    wandb_logger, csv_logger = build_loggers(args)
+    if wandb_logger is None:
         console_log_file_path = os.path.join("./logs", args.console_log_filename)
         sys.stdout = text_logger.Tee(sys.stdout, console_log_file_path)
         sys.stderr = text_logger.Tee(sys.stderr, console_log_file_path)
@@ -181,7 +176,8 @@ def main(args):
     
     if not args.only_test: #training and testing (if testing selected) as per usual
         print("$$$$$$$$$$  STARTED TRAINING  $$$$$$$$$$")
-        trainer = set_trainer(args, wandb_logger, checkpoint_callback)
+        loggers = [l for l in (wandb_logger, csv_logger) if l is not None]
+        trainer = set_trainer(args, loggers, checkpoint_callback)
         resume_training_ckpt = None if args.resume_training_ckpt == "" else args.resume_training_ckpt
         trainer.fit(model_trainer, ckpt_path=resume_training_ckpt)
         
@@ -229,7 +225,8 @@ def main(args):
         model.eval()
         model_trainer = ModelTrainer(args, trained_model=model.model) # need to use args as we have to use the model most recently passed in for inference
 
-        trainer = set_trainer(args, wandb_logger, checkpoint_callback, stage = "test")
+        loggers = [l for l in (wandb_logger, csv_logger) if l is not None]
+        trainer = set_trainer(args, loggers, checkpoint_callback, stage = "test")
         model_trainer.model.eval()
         trainer.test(model_trainer)
         if args.modality == "NLP": # can have modality specific logic here for inference
@@ -246,7 +243,7 @@ def main(args):
         else:
             raise NotImplementedError(f"no post test evaluation setup for this modality: {args.modality} yet")
 
-def set_trainer(args, wandb_logger, checkpoint_callback, stage = "train"):
+def set_trainer(args, loggers, checkpoint_callback, stage = "train"):
     torch.autograd.set_detect_anomaly(args.detect_anomaly) #NOTE seems pl detect anomaly is not working so manually set it here
 
     if args.find_unused_parameters: #for if ever need more manipulation
@@ -266,7 +263,7 @@ def set_trainer(args, wandb_logger, checkpoint_callback, stage = "train"):
         num_nodes=args.num_nodes,
         precision=args.float_precision,
         max_steps=args.max_steps,
-        logger=wandb_logger,
+        logger=loggers,
         enable_model_summary=args.log_model_archi,
         callbacks = [checkpoint_callback, ModelSummary(max_depth=-1)],
         strategy = args.distributed_strategy, 
