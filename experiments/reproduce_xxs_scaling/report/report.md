@@ -9,7 +9,7 @@ tags: [ebt, reproduction, nlp, scaling]
 > [!summary] TL;DR
 > - After 105k steps (≈860M token positions), **Transformer++ reaches valid loss 3.696 (ppl 40.3)** and **EBT reaches 3.837 (ppl 46.4)**. EBT's perplexity is about 15% worse at xxs scale. The paper also reports worse absolute loss for EBT at its tested scales.
 > - EBT's validation gap to Transformer++ shrinks from 0.511 nats at 15k steps to 0.141 nats at 105k steps. Over the last 45k steps it shrinks only slowly (0.158 → 0.141).
-> - Measured on one H100 NVL, **EBT cost 5.13× the wall-clock** of Transformer++ (9h04m vs 1h46m) and 4.15× the peak memory (38.4 GB vs 9.3 GB). The run was stable: no NaN, no resume, and 0% of steps clipped after warmup.
+> - Measured on one H100 NVL, **EBT cost 5.13× the wall-clock** of Transformer++ (9h04m vs 1h46m) and 4.15× the peak memory (37.5 GiB vs 9.0 GiB). The run was stable: no NaN, no resume, and no loss spikes beyond the batch noise Transformer++ also shows.
 
 ## 1. Summary
 
@@ -36,7 +36,7 @@ Shared hyperparameters (paper Table D.1–D.3, App. D.1.1):
 | `--ffn_dim_multiplier` | `1` |
 | Params | 44.8M total, of which non-embedding: EBT 6,199,296 and Transformer++ 6,198,144 (paper: 6.18M) |
 | `--context_length` | `256` |
-| Batch | `32 × 1 accum × 1 GPU` |
+| Batch | `32 × 1 accum × 1 GPU` (paper App. D.1.1: xxs uses batch 32 for the parameter/FLOP scaling runs; `ebt_s1.sh` uses a global batch of 256 for other experiments) |
 | `--peak_learning_rate` | `0.0012` |
 | `--max_steps` / `--max_scheduling_steps` | `105000` / `105000` |
 | `--warm_up_steps` / `--min_lr_scale` | `10000` / `10` |
@@ -110,7 +110,7 @@ Gap in validation loss, EBT minus Transformer++ (nats):
 
 - EBT starts much worse because of its warmup phase (see §5.2), then catches up quickly by 30k steps.
 - After 30k steps the gap keeps shrinking, but slowly: by about 0.07 nats over the last 75k steps. A straight-line extrapolation would not close the gap within a reasonable budget at this size. This curve is a single run with one learning-rate schedule, so it says nothing about the scaling rate across model sizes.
-- Final train loss is 3.867 for EBT and 3.721 for Transformer++. These are single-batch values at step 104,999. Both are close to the validation loss, so neither model overfits (training was under one epoch).
+- Final train loss is 3.855 for EBT (final MCMC step; 3.867 averaged over steps) and 3.721 for Transformer++. These are single-batch values at step 104,999. Both are close to the validation loss, so neither model overfits (training was under one epoch).
 
 ### 5.2 EBT dynamics
 
@@ -146,7 +146,7 @@ Gap in validation loss, EBT minus Transformer++ (nats):
 ### 5.3 Stability
 
 - **No NaN or Inf.** The log contains no `NaN or Inf gradients detected during MCMC` error. There was no resume: the run has a single `version_0`.
-- **Gradient clipping happened only at the very start of EBT.** At step 49, 10.7% of parameters were clipped and the average gradient norm was 1135. At that point the loss was about 4.9e3, because the random-noise initial condition was scaled by α=500 in an untrained model. From step 1,000 on, clipping is 0% and the gradient norm is 0.03–0.06. Transformer++ never clipped.
+- **Large gradients appear only at the very start of EBT.** The trainer's `pct_gradient_clipped` metric is the share of individual gradient *elements* with |g| > 1.0 before clipping, sampled every 50 steps; it is not a count of norm-clipping events, and the true total gradient norm was not logged. At step 49 this share was 10.7% and the mean per-tensor gradient norm was 1135, while the first-step loss was 4.9e3 (`train_loss`, averaged over MCMC steps, was 3.5e3) because the random-noise initial condition is scaled by α=500 in an untrained model. From step 1,000 on, the share is 0% and the mean per-tensor norm stays in 0.025–0.52. For Transformer++ the share is 0% throughout.
 - **Batch-level noise is the same for both models.** After 5k steps, the train loss jumps by more than 0.3 between consecutive logged points 53 times for EBT and 50 times for Transformer++, out of 2,000 points each. These are batch noise, not instability.
 
 ### 5.4 Cost
@@ -160,7 +160,7 @@ Gap in validation loss, EBT minus Transformer++ (nats):
 - The paper's cost ratio for 2-step S1 EBT is about 6.66× *training FLOPs*. The measured wall-clock ratio is lower, at 5.1×.
 - We did not profile where the difference comes from. Fixed per-step costs, such as data loading, the optimizer, and the embedding and output head shared by both models, would dilute the ratio. This is a hypothesis, not a measurement.
 - The higher memory comes from second-order backprop through the MCMC steps (`create_graph=True`).
-- Both runs fit easily on one 94 GB H100 NVL at batch size 32.
+- Peak memory is whole-device `nvidia-smi` usage during the 350-step benchmark on the smoke subset, not a measurement from the 105k runs. Both fit easily on one 94 GB H100 NVL at batch size 32.
 
 ### 5.5 Comparison with the paper
 
@@ -171,7 +171,7 @@ Gap in validation loss, EBT minus Transformer++ (nats):
 ## 6. Deviations and limitations
 
 1. **Data:** the paper trains on all of `sample-100B`, about 66M documents (random split 66M / 33K). We sampled shards with seed 33 from the same 8,400 tags until we had **3.4M documents**, about 5% of the corpus, then random-split about 33K for validation. Each document keeps its first 257 tokens, as in `pajama_dataloader.py`.
-   - *Possible effect:* shards are sampled as whole files, so the subset is clustered by snapshot and partition, and slightly less diverse than i.i.d. sampling. Because the run stays under one epoch, there is no repetition effect. Absolute losses may differ from the paper's. The EBT vs Transformer++ comparison is fair because both models used identical data and order (seed 33).
+   - *Possible effect:* shards are sampled as whole files, so the subset is clustered by snapshot and partition, and slightly less diverse than i.i.d. sampling. Because the run stays under one epoch, there is no repetition effect. Absolute losses may differ from the paper's. Both models draw from the same 3.4M-document subset, but **not** the same validation split or train order: `random_split` and the shuffling DataLoader use the global RNG after model init, which consumes different amounts of randomness for each backbone (the reviewer measured only 329 of 33,320 validation docs shared). The sampling noise of a 33K-document mean is about 0.005 nats, far below the 0.141-nat gap, so the conclusion is unlikely to change.
 2. **`max_scheduling_steps = 105000`:** the paper does not give this value. Cosine decay finishes exactly at the end of training. A different schedule changes the absolute losses for both models.
 3. **`ebt_type time_embed`:** the paper does not state this for the scaling runs. We took it from `ebt_s1.sh` ("System 1 EBT used for many experiments in the paper"). Other EBT backbones (`default`, `adaln`) might give a different gap.
 4. **Logger:** trackio plus CSV instead of wandb. This has no effect on training.
