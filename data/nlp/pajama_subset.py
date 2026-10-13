@@ -189,6 +189,38 @@ def build_subset(out_dir, num_docs, max_length, tokenizer, tokenizer_name, tags,
     })
 
 
+class RedPajamaSubsetDataset(Dataset):
+    """Reads the memmap written by build_subset; items match RedPajamaDataset with --pretokenize_dataset."""
+
+    def __init__(self, hparams):
+        if hparams.execution_mode != "pretrain":
+            raise ValueError("pajama_subset is a pretrain dataset, no other execution modes supported.")
+        max_length = hparams.context_length + 1
+        self.root = subset_dir(hparams.dataset_dir, hparams.tokenizer, max_length)
+        meta_path = os.path.join(self.root, "meta.json")
+        if not os.path.exists(meta_path):
+            raise FileNotFoundError(
+                f"{meta_path} not found. Build it with: python -m data.nlp.pajama_subset "
+                f"--dataset_dir {hparams.dataset_dir} --max_length {max_length} --tokenizer {hparams.tokenizer} --num_docs N"
+            )
+        with open(meta_path) as f:
+            meta = json.load(f)
+        if meta["max_length"] != max_length or meta["tokenizer"] != hparams.tokenizer:
+            raise ValueError(f"{self.root} was built for max_length={meta['max_length']}, tokenizer={meta['tokenizer']}")
+        self.num_docs = meta["num_docs"]
+        self.lengths = np.load(os.path.join(self.root, "lengths.npy"))
+        self._input_ids = None  # opened lazily so every DataLoader worker maps the file itself
+
+    def __len__(self):
+        return self.num_docs
+
+    def __getitem__(self, idx):
+        if self._input_ids is None:
+            self._input_ids = np.load(os.path.join(self.root, "input_ids.npy"), mmap_mode="r")
+        length = int(self.lengths[idx])
+        return {"input_ids": self._input_ids[idx, :length].astype(np.int64).tolist(), "attention_mask": [1] * length}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Build the pajama_subset dataset used by --dataset_name pajama_subset")
     parser.add_argument("--dataset_dir", required=True)

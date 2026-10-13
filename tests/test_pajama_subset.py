@@ -106,9 +106,63 @@ def test_download_retries_transient_errors(tmp_path, monkeypatch):
     monkeypatch.setattr("data.nlp.pajama_subset.time.sleep", lambda s: None)
     session = _Session([_Resp(503), _Resp(200, b"data")])
     path = download_documents("2014-15/0000/en_head", str(tmp_path), session)
-    assert session.calls == 2 and open(path, "rb").read() == b"data"
+    with open(path, "rb") as f:
+        assert session.calls == 2 and f.read() == b"data"
 
 
 def test_download_reuses_cache(tmp_path):
     cached = write_shard(str(tmp_path), "2014-15/0000/en_head", ["a"])
     assert download_documents("2014-15/0000/en_head", str(tmp_path), session=None) == cached
+
+
+from types import SimpleNamespace
+
+from data.nlp.collator import NLP_HF_Collator
+
+
+def _subset_hparams(tmp_path, context_length=16):
+    return SimpleNamespace(execution_mode="pretrain", context_length=context_length, dataset_dir=str(tmp_path), tokenizer=TOKENIZER_NAME, mcmc_replay_buffer=False, pretokenize_dataset=True)
+
+
+def _build_in_place(tmp_path, tokenizer, texts, max_length=17):
+    from data.nlp.pajama_subset import subset_dir
+    tag = "2014-15/0000/en_head"
+    path = write_shard(str(tmp_path / "raw"), tag, texts)
+    out_dir = subset_dir(str(tmp_path), TOKENIZER_NAME, max_length)
+    return build_subset(out_dir, 100, max_length, tokenizer, TOKENIZER_NAME, [tag], {tag: path}.get, seed=33, download_workers=1)
+
+
+def test_dataset_returns_unpadded_items(tmp_path, tokenizer):
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset
+    _build_in_place(tmp_path, tokenizer, ["a short doc here", LONG_TEXT])
+    ds = RedPajamaSubsetDataset(_subset_hparams(tmp_path))
+    assert len(ds) == 2
+    item = ds[0]
+    assert item["input_ids"] == tokenizer("a short doc here")["input_ids"]
+    assert item["attention_mask"] == [1] * len(item["input_ids"])
+    assert len(ds[1]["input_ids"]) == 17
+
+
+def test_collator_pads_subset_items(tmp_path, tokenizer):
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset
+    _build_in_place(tmp_path, tokenizer, ["a short doc here", LONG_TEXT])
+    hparams = _subset_hparams(tmp_path)
+    ds = RedPajamaSubsetDataset(hparams)
+    batch = NLP_HF_Collator(hparams)([ds[0], ds[1]])
+    assert tuple(batch["input_ids"].shape) == (2, 17)
+    assert batch["input_ids"][0, -1].item() == PAD_ID
+
+
+def test_dataset_refuses_subset_built_for_other_context_length(tmp_path, tokenizer):
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset
+    _build_in_place(tmp_path, tokenizer, ["a short doc here"], max_length=17)
+    with pytest.raises(FileNotFoundError, match="python -m data.nlp.pajama_subset"):
+        RedPajamaSubsetDataset(_subset_hparams(tmp_path, context_length=256))
+
+
+def test_dataset_refuses_inference_mode(tmp_path):
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset
+    hparams = _subset_hparams(tmp_path)
+    hparams.execution_mode = "inference"
+    with pytest.raises(ValueError, match="pretrain"):
+        RedPajamaSubsetDataset(hparams)
