@@ -1,15 +1,16 @@
 ---
 title: Reproduce EBT xxs scaling (NLP) — Report
 date: 2026-10-13
+updated: 2026-10-14
 tags: [ebt, reproduction, nlp, scaling]
 ---
 
 # Reproduce EBT xxs scaling (NLP) — Report
 
 > [!summary] TL;DR
-> - After 105k steps (≈860M token positions), **Transformer++ reaches valid loss 3.696 (ppl 40.3)** and **EBT reaches 3.837 (ppl 46.4)**. EBT's perplexity is about 15% worse at xxs scale. The paper also reports worse absolute loss for EBT at its tested scales.
-> - EBT's validation gap to Transformer++ shrinks from 0.511 nats at 15k steps to 0.141 nats at 105k steps. Over the last 45k steps it shrinks only slowly (0.158 → 0.141).
-> - Measured on one H100 NVL, **EBT cost 5.13× the wall-clock** of Transformer++ (9h04m vs 1h46m) and 4.15× the peak memory (37.5 GiB vs 9.0 GiB). The run was stable: no NaN, no resume, and no loss spikes beyond the batch noise Transformer++ also shows.
+> - After 105k steps (≈860M token positions), valid loss is **3.696 (ppl 40.3) for Transformer++**, **3.837 (ppl 46.4) for EBT System 1** and **3.943 (ppl 51.6) for EBT System 2** (§8). Both EBTs are worse in absolute loss, as the paper also reports at its tested scales; the S1 gap shrinks from 0.511 nats at 15k to 0.141 at 105k, but only slowly after 45k.
+> - On one H100 NVL, wall-clock is **5.13× (S1) and 5.92× (S2)** that of Transformer++ (9h04m / 10h27m vs 1h46m). All three runs were stable: no NaN, no resume, no spikes beyond batch noise.
+> - The MCMC steps matter very differently: S1's second step improves loss by only 0.019 nats, while S2's prediction comes almost entirely from refinement (6.16 after step 1 → 3.94 after step 3, energy drop ≈5). Testing S2's thinking claims (more steps, self-verification) needs inference experiments not run here.
 
 ## 1. Summary
 
@@ -215,4 +216,94 @@ $PY $EXP/collect_results.py \
   --out $EXP/report/result.md
 ```
 
+S2 run (§8), from the same shell:
+
+```bash
+GPU_ID=0 DATA_ROOT=$EXP/data/smoke $PY $EXP/benchmark.py ebt_s2              # → runs/benchmark_ebt_s2.json (50/350-step timing, batch 32)
+GPU_ID=0 bash $EXP/run_ebt_s2_xxs.sh > $EXP/logs/ebt_s2_xxs.log 2>&1      # ~10.5h on one H100 NVL
+$PY $EXP/collect_results.py \
+  --run "Transformer++=$EXP/runs/logs/csv/baseline-xxs-scaling-105k/version_*/metrics.csv" \
+  --run "EBT-S1=$EXP/runs/logs/csv/ebt-xxs-scaling-105k/version_*/metrics.csv" \
+  --run "EBT-S2=$EXP/runs/logs/csv/ebt-s2-xxs-scaling-105k/version_*/metrics.csv" \
+  --benchmark "Transformer++=$EXP/runs/benchmark_baseline.json" \
+  --benchmark "EBT-S1=$EXP/runs/benchmark_ebt.json" \
+  --benchmark "EBT-S2=$EXP/runs/benchmark_ebt_s2.json" \
+  --out $EXP/report/result.md
+```
+
+The committed `benchmark_ebt_s2.json` came from an equivalent one-off script (same 50/350-step protocol at batch 32, logs `logs/bench_s2_b32_{50,350}.log`); that script also showed batch 128 OOMs on the 94 GB GPU (`logs/bench_s2_b128_*.log`).
+
 If a run dies, re-run the same script with `--resume_training_ckpt <absolute path to runs/logs/checkpoints/.../last.ckpt>`. Global step and CSV logging continue in a new `version_<n>` directory, which `collect_results.py` merges.
+
+## 8. EBT System 2 vs System 1 vs Transformer++
+
+A third run trains the same xxs EBT with the paper's **System 2 (S2)** MCMC hyperparameters. It keeps everything else from §2: batch 32, 105k steps, the same data, split and batch order (DDP `reset_seed`, §6.1), and seed 33. It ran on GPU 0 from 2026-10-14 05:20:32 to 15:47:12 UTC, exited 0, with a single `version_0`. It is logged to the same trackio project, `ebt_xxs_scaling`, as run `ebt-s2-xxs-scaling-105k`.
+
+S2-only settings (`run_ebt_s2_xxs.sh`, from paper Table D.4, NLP column):
+
+| Hparam | S1 (§2) | S2 |
+|---|---|---|
+| MCMC steps (train) | 2 | random 2–3 per batch (`--mcmc_num_steps 1 --randomize_mcmc_num_steps 2 --randomize_mcmc_num_steps_min 2`) |
+| MCMC steps (validation) | 2 | 3 (the code uses the maximum when randomness is off) |
+| Step size α | 500, learnable (ends at 528.9) | 5, fixed; uniform in [α/2, 2α] per token during training |
+| Langevin noise std | 0 | 3.0 on the logits before every step, **also at validation** (`no_langevin_during_eval` is off) |
+| Replay buffer | no | yes (size 192; half of each train batch starts from a stored final prediction) |
+| `--no_mcmc_detach` / `--truncate_mcmc` | no / no | yes / yes (loss on the final step only) |
+
+### 8.1 Results
+
+From `result.md`. All EBT losses are the final-step loss.
+
+| model | valid loss @105k | valid ppl | Δ vs Transformer++ | wall-clock | × Transformer++ | steps/s (bench) | peak mem (bench) |
+|---|---|---|---|---|---|---|---|
+| Transformer++ | 3.6964 | 40.30 | — | 1h45m57s | 1.00 | 16.595 | 9,263 MiB |
+| EBT-S1 | 3.8373 | 46.40 | +0.141 | 9h03m37s | 5.13 | 3.347 | 38,445 MiB |
+| EBT-S2 | 3.9431 | 51.58 | +0.247 | 10h26m40s | 5.92 | 3.016 | 60,999 MiB |
+
+Validation gap by step (nats):
+
+| step | 15k | 30k | 45k | 60k | 75k | 90k | 105k |
+|---|---|---|---|---|---|---|---|
+| S2 − S1 | −0.096 | +0.146 | +0.143 | +0.144 | +0.121 | +0.113 | +0.106 |
+| S2 − Transformer++ | 0.415 | 0.355 | 0.318 | 0.302 | 0.270 | 0.256 | 0.247 |
+
+- S2 is ahead of S1 at 15k, when S1 is still recovering from its large-α warmup (§5.2). From 30k on, S2 is behind S1 and the gap closes slowly, by about 0.04 nats over 75k steps.
+- S2 is the worst of the three at 105k: its perplexity is 1.11× S1 and 1.28× Transformer++.
+- The S2 validation loss is a noisy estimate: the Langevin noise (std 3) stays on at validation, so a different noise draw gives a slightly different number. Its size was not measured.
+- The S2 train loss is not comparable to S1's: half of each train batch starts from replay-buffer predictions rather than noise, and the number of steps is random.
+
+### 8.2 MCMC dynamics: S2 vs S1
+
+`initial loss` is the loss after the first MCMC step; `final-step loss` is after the last one (2 steps for S1, 3 for S2 at validation). `energy gap` is the mean energy after the first step minus after the last.
+
+| valid @ step | S1 initial | S1 final | S1 energy gap | S2 initial | S2 final | S2 energy gap |
+|---|---|---|---|---|---|---|
+| 15k | 4.795 | 4.804 | −0.005 | 5.988 | 4.708 | 2.86 |
+| 30k | 4.267 | 4.255 | 0.014 | 6.214 | 4.401 | 3.87 |
+| 60k | 4.015 | 3.999 | 0.016 | 6.147 | 4.143 | 4.66 |
+| 90k | 3.883 | 3.865 | 0.024 | 6.308 | 3.978 | 5.13 |
+| 105k | 3.856 | 3.837 | 0.029 | 6.164 | 3.943 | 4.97 |
+
+- **S1 is effectively a one-step predictor.** Its first step already gives almost the final quality, and the second step adds 0.019 nats.
+- **S2 is a multi-step refiner.** After one step its loss is about 6.2 nats, and it does *not* improve over training (5.99 → 6.16). All of the learning shows up in the later steps: 2.2 nats of improvement and an energy drop of about 5 at 105k.
+  - This is what the setup predicts. α=5 is about 100× smaller than S1's learned α, so one step cannot move the noise far. With `--truncate_mcmc`, only the final step's prediction enters the loss.
+  - So with S2, the energy landscape is what carries the prediction: the model must be minimized for 3 steps to be useful, and its single-step output is not a usable language model.
+- On train data, every one of the 2,100 logged points has final-step loss below initial loss and a positive energy gap. In S1, 366 points had no improvement and 246 had a negative gap (§5.2).
+- No NaN or Inf (no `NaN or Inf gradients detected during MCMC` in the log). `pct_gradient_clipped` (share of gradient elements with |g| > 1, §5.3) was 0.0018% at step 49, nonzero at only two later logged points (max 0.00015%, step 199), and 0% from step 200 on. The mean per-tensor gradient norm was 8.0 at step 49 and 0.029–0.49 from step 1,000 on, the same range as S1. S2 had no large early spike like S1's (1,135 at step 49). That is consistent with α=5 being 100× smaller than S1's initial α=500, but we did not test the cause.
+
+### 8.3 What this does and does not test
+
+- The paper uses S2 for its **thinking** results: more MCMC steps at inference and self-verification over several sampled predictions (paper Table 2 reports these as % perplexity improvement on BigBench Dyck Languages). Its regularizers (Langevin noise, random step size and count, replay buffer) are described as making the energy landscape better for thinking, and Table 2 shows that removing Langevin dynamics *improves* single-path "thinking longer" (17.2 vs 7.19). We found no claim in the paper that S2 lowers pretraining loss at a fixed step count.
+- So a worse pretraining loss for S2 than for S1 does not contradict the paper. Our *hypothesis*, not tested here, is that part of the S1–S2 gap comes from the noise and randomization that S2 adds on purpose.
+- This run does not test the thinking claims. That needs inference with more steps (e.g. 3 → 8) and with N sampled predictions picked by minimum energy, on both checkpoints. These are diagnostics C and D proposed earlier in this project; they have not been run.
+
+### 8.4 Deviations from the paper (S2)
+
+1. **Batch 32 instead of 128.** Paper App. D.1.2 trains the S2 thinking model with batch 128. On one 94 GB H100 NVL, batch 128 runs out of memory (`logs/bench_s2_b128_*.log`: tried to allocate 9.21 GiB with 88.38 GiB in use). Gradient accumulation (32×4) would fit but costs about 39 GPU-h; we kept batch 32 so S2 is comparable step-for-step with S1 and Transformer++.
+2. **105k steps instead of 1M.** The paper's thinking model trains for 1M steps. At the measured 3.0 steps/s, 1M steps at batch 32 would take about 92 h (about 368 h at batch 128).
+3. **Model size xxs.** The text of App. D.1.2 says the thinking experiments use xxs, but Table D.4 lists model size "Small". We followed the text, which also matches S1.
+4. **Data: 3.4M-document RedPajama-V2 subset** instead of the full `sample-100B` (same as §6.1). S2 needs about 3.4M sequences for 105k steps at batch 32, so this run, like S1, stays under one epoch.
+5. **Hyperparameters from paper Table D.4, not the repo's current `job_scripts/nlp/pretrain/ebt_s2.sh`.** The script was changed after the paper (commit `19420cb`) to α 0.5, 2–4 steps, `--norm_pred`, `--scale_alpha_with_energy` and FineWeb data with global batch 256. The paper's values were chosen because the goal is to reproduce the paper.
+6. **α is not learnable**, following Table D.4 (✗). This is different from S1 (α learnable, LR multiplier 1500).
+7. **Validation keeps Langevin noise on and uses the maximum step count (3).** This is the repo's default behaviour, not a choice we made; the paper does not say how its S2 validation loss was computed.
+8. **Peak memory and steps/s are benchmark values** (350 steps at batch 32, whole-device `nvidia-smi`), not measurements from the 105k run. The 105k run averaged 2.79 steps/s (105,000 steps in 37,600 s), including validation and data loading; the S1 run averaged 3.22 steps/s.
