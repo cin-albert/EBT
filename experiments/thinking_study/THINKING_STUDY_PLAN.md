@@ -163,6 +163,9 @@ graph LR
   Q3 -- "landscape shows a mechanism a different optimizer could exploit" --> TT[Training-time optimizer swap ~10 GPU-h each]
 ```
 
+> [!info] Status (2026-10-15)
+> M0, M1 and M2 are done: gate in `common/results/gate.json`, results in [[q2_verifier_quality/report|Q2 report]] and [[q3_energy_landscape/report|Q3 report]]. Actual cost: about 0.1 GPU-h (gate), 0.5 GPU-h (Q2), 0.5 GPU-h (Q3). M3 (Q1) has not started.
+
 | Milestone | Done when | Estimated cost |
 |---|---|---|
 | M0 harness | Correctness gate passes for all three checkpoints | ~0.5 GPU-h, plus most of the engineering |

@@ -92,7 +92,8 @@ def hessian_and_jacobian(model, ctx, s, alpha, mask, n_power=30):
     with torch.enable_grad():
         E = energy_from_embedding(model, ctx, e, lsc)
         (g_e,) = torch.autograd.grad(E.sum(), e, create_graph=True)
-        hvp = lambda u: torch.autograd.grad(g_e, e, grad_outputs=u, retain_graph=True)[0]
+        g_e_tok = g_e.detach()[mask].cpu()
+        hvp = lambda u: torch.autograd.grad(g_e, e, grad_outputs=u, retain_graph=True)[0].detach()
         D = e.shape[-1]
         H = torch.empty(*e.shape[:2], D, D, device=e.device)
         for k in range(D):
@@ -110,16 +111,19 @@ def hessian_and_jacobian(model, ctx, s, alpha, mask, n_power=30):
             n = jv.norm(dim=-1, keepdim=True).clamp_min(1e-30)
             log_growth += n.squeeze(-1).log()
             v = jv / n
+    del g_e, E  # free the double-backward graph before the eigendecomposition
+    H = H.detach()
     Hs = 0.5 * (H + H.transpose(-1, -2))[mask]
+    del H
     eig = torch.linalg.eigvalsh(Hs.double()).float()  # (n_tok, D), ascending
-    rho = (log_growth / n_power).exp()[mask]
+    rho = (log_growth / n_power).exp().detach()[mask]
     g_p = (s.grad - s.grad.mean(-1, keepdim=True))[mask]
     g2 = g_p.pow(2)
     k = max(1, int(0.01 * g2.shape[-1]))
     top1pct_share = g2.topk(k, dim=-1).values.sum(-1) / g2.sum(-1)
     gz = (g_p - g_p.mean(-1, keepdim=True)) / g_p.std(-1, keepdim=True)
     kurtosis = gz.pow(4).mean(-1)
-    return eig.cpu(), rho.cpu(), g_e.detach()[mask].cpu(), top1pct_share.cpu(), kurtosis.cpu()
+    return eig.cpu(), rho.cpu(), g_e_tok, top1pct_share.cpu(), kurtosis.cpu()
 
 
 def line_profile(model, ctx, s, alpha, targets, mask):
@@ -157,7 +161,9 @@ def part_b(model, val_ds, idx, n_steps, n_train, alpha, batch_size, seed):
             for k, v in [("eig", eig), ("rho", rho), ("g_e", g_e), ("top1pct", top), ("kurt", kurt),
                          ("line_energy", line["energy"]), ("line_phi", line["phi"]), ("line_logp", line["logp"])]:
                 res[t][k].append(v)
-        print(f"  B batch {b + 1}", flush=True)
+        del states, ctx
+        torch.cuda.empty_cache()
+        print(f"  B batch {b + 1} mem {torch.cuda.memory_allocated() / 2**30:.1f} GiB", flush=True)
     out = {}
     for t, d in res.items():
         cat = {k: torch.cat(v, dim=0 if k in ("eig", "rho", "g_e", "top1pct", "kurt") else -1) for k, v in d.items()}
@@ -177,6 +183,7 @@ def main():
     ap.add_argument("--batch-size-b", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument("--reuse-part-a", action="store_true", help="skip Part A if its arrays already exist")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -189,6 +196,8 @@ def main():
 
     noises = sorted({0.0, float(hparams["langevin_dynamics_noise"])})
     for noise in noises:
+        if args.reuse_part_a and (args.out_dir / f"part_a_noise{noise:g}.npz").exists():
+            continue
         print(f"Part A noise={noise}", flush=True)
         arrays = part_a(model, val_ds, idx[: args.n_seqs_a], args.n_steps, noise, alpha, args.batch_size_a, args.seed)
         np.savez_compressed(args.out_dir / f"part_a_noise{noise:g}.npz", **arrays)

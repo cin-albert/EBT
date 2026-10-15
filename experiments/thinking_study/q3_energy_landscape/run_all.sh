@@ -8,6 +8,6 @@ export HF_HOME=/mnt/data/quangnx/huggingface PYTHONPATH="$REPO:$TS/common" CUDA_
 cd "$REPO"
 for model in s2 s1; do
   echo "=== $model $(date -Is)"
-  $PY "$TS/q3_energy_landscape/run_q3.py" --model "$model" --out-dir "$TS/q3_energy_landscape/results/${model}_step105000" "$@"
+  $PY "$TS/q3_energy_landscape/run_q3.py" --model "$model" --out-dir "$TS/q3_energy_landscape/results/${model}_step105000" --reuse-part-a "$@"
 done
 echo "=== done $(date -Is)"

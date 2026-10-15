@@ -67,6 +67,8 @@ def analyze(run_dir: Path) -> dict:
             "pairwise_consistency_any_gap": pairwise_consistency(e, ce, 1e-6),
             f"pairwise_consistency_gap_gt_{MIN_CE_GAP}": pairwise_consistency(e, ce, MIN_CE_GAP),
             "best_of_n": best_of_n(e, ce),
+            # tests whether energy prefers sharper candidates: share of pairs where lower E has lower entropy
+            "pairwise_lower_energy_has_lower_entropy": pairwise_consistency(e, a["entropy"], 1e-3),
         }
     wrong = ~a["top1"][0].astype(bool)
     m["uncertainty"] = {
