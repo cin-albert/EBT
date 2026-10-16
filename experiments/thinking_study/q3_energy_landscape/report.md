@@ -7,7 +7,7 @@ tags: [ebt, thinking-study, energy-landscape]
 # Q3 — Energy landscape and update-map properties
 
 > [!summary] TL;DR
-> - EBT inference is a **fixed-point iteration** p ← softmax(p − α∇_pE(p)), whose fixed points are the stationary points of Φ(p) = α·E(p) − H(p) − ½‖p‖², not plain GD on E. The measurements fit this: along the update direction, the step α is exactly the line-minimizer of Φ (median s* = 1.0 for both models and all states), while E keeps decreasing past it.
+> - EBT inference **as implemented in the public code** is a **fixed-point iteration** p ← softmax(p − α∇_pE(p)), whose fixed points are the stationary points of Φ(p) = α·E(p) − H(p) − ½‖p‖², not plain GD on E. This differs from the paper's own pseudocode, which takes the gradient with respect to the logits and accumulates them (§2.1). The measurements fit the code's rule: along the update direction, the step α is exactly the line-minimizer of Φ (median s* = 1.0 for both models and all states), while E keeps decreasing past it.
 > - The loop **converges fast and contracts locally** (spectral radius of the update Jacobian at step 32: median 0.49 for S2, 0.35 for S1; >99% of tokens below 1), but **extra steps do not help loss**: the best CE is at the trained step count (S2: 3.943 at k=3 → 4.041 at k=32; S1: 3.841 at k=2 → 3.871). E itself is **non-convex** in the predicted embedding: 0% of tokens are locally convex, and 33–56% of the Hessian eigenvalues are negative.
 > - Implications for a training-time optimizer swap: updates live in a **~20–30-dimensional effective subspace** (participation ratio of ∇_eE out of D = 384), gradients across steps are almost collinear (cos ≈ 0.998–1.0), and the curvature is very anisotropic (λ_max/median|λ| ≈ 13–75). These point to preconditioning or low-dimensional search as plausible levers, and away from momentum. Energy decrease is only weakly aligned with loss decrease (Spearman 0.4 for S2, ≈0 for S1 after step 2).
 
@@ -23,12 +23,42 @@ tags: [ebt, thinking-study, energy-landscape]
 
 ## 2. Mechanism: what the loop optimizes
 
-From `model/nlp/ebt.py:115-160`, the gradient is taken with respect to the probabilities p = softmax(z), and the state is overwritten with z_{t+1} = p_t − α∇_pE(p_t). Setting the Lagrangian gradient of Φ on the simplex to zero gives α∇_pE + log p + 1 − p = const, i.e. p = softmax(p − α∇_pE(p)). So:
+From `model/nlp/ebt.py:115-175` (public code; the paper's pseudocode differs, §2.1), the gradient is taken with respect to the probabilities p = softmax(z), and the state is overwritten with z_{t+1} = p_t − α∇_pE(p_t). Setting the Lagrangian gradient of Φ on the simplex to zero gives α∇_pE + log p + 1 − p = const, i.e. p = softmax(p − α∇_pE(p)). So:
 
-- the fixed points of the loop are the stationary points of Φ, an energy with an entropy regularizer at temperature 1/α (S1: α = 528.9, almost pure energy; S2: α = 5, strong entropy term);
+- the fixed points of the loop are the stationary points of Φ, an energy with an entropy regularizer at temperature 1/α (S1: α = 528.9, S2: α = 5). α alone does not set how strong the entropy term is, because the model learns the scale of E (mean energy ≈ 0.15 for S1, ≈ 3 for S2), so the two values are not directly comparable;
 - the previous state carries over only through p ∈ [0, 1], so the loop has little memory, and every update lies in the row space of W_v (≤ 384 dims).
 
 Empirical check: along the actual update direction, the median line-minimizer of Φ is **s = 1.0 at every measured state of both models**, while the minimizer of E is s = 2.0 (the edge of the scanned range; E is still decreasing). The update is a line-optimal step on Φ, not on E.
+
+### 2.1 Paper pseudocode vs public code
+
+The paper and the public code describe different update rules.
+
+| | Paper (App. I.2, Listing 1) | Public code (`model/nlp/ebt.py`) |
+|---|---|---|
+| Softmax | Applied inline: `vocab_to_embed(softmax(predicted_distributions))` | `predicted_tokens` is overwritten with `softmax(predicted_tokens)` (l. 130/132) |
+| Gradient taken w.r.t. | Logits z (`predicted_distributions`) | Probabilities p (the overwritten tensor; l. 149–153) |
+| Update | z_{t+1} = z_t − α∇_zE(softmax(z_t)) | z_{t+1} = p_t − α∇_pE(p_t) (l. 171) |
+| State carried to the next step | Accumulated logits z_t (unbounded) | p_t ∈ [0, 1] only |
+| Fixed points are stationary points of | E∘softmax (no entropy term) | Φ = αE − H − ½‖p‖² |
+
+```python
+# Paper, Listing 1 (abridged)
+predicted_embeddings = self.vocab_to_embed(softmax(predicted_distributions))
+grad = torch.autograd.grad(predicted_energies.sum(), predicted_distributions, create_graph=True)[0]
+predicted_distributions = predicted_distributions - self.alpha * grad
+
+# Public code (abridged; normalize_initial_condition=True, as in our S1/S2 runs)
+predicted_tokens = self.softmax(predicted_tokens)
+grad = torch.autograd.grad([energy_preds.sum()], [predicted_tokens], ...)[0]
+predicted_tokens = predicted_tokens - alpha * grad
+```
+
+- The two gradients are related by the softmax Jacobian: ∇_zE = p ⊙ (∇_pE − ⟨p, ∇_pE⟩). So the paper's rule also damps low-probability tokens and vanishes as p saturates; the code's rule does neither.
+- The code's behaviour is in the authors' first public commit (`4aacd9e`, "add all code") and unchanged in the latest one we have (`19420cb`). It is not a change from our reproduction. No flag reproduces the paper's rule: disabling `normalize_initial_condition` removes the softmax entirely, which App. I.1.5 reports as unstable.
+- We cannot tell whether this is intended. The code comment at l. 171 ("tokens will be unnormalize prob dist convert to prob dist after") treats the updated tensor as an unnormalized distribution; the paper does not mention it.
+- The paper's results were presumably produced with this code, so they likely reflect the code's rule. This is an inference, not stated in the paper.
+- **Scope of this report:** every mechanism claim here (Φ, the hidden entropy term, short memory) applies to the code's rule. A model trained with the paper's rule would optimize E∘softmax and keep memory through z. The two rules are a natural training-time ablation (see [[THINKING_STUDY_PLAN]] M4).
 
 ## 3. Results
 
