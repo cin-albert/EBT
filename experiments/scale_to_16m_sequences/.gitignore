@@ -1,0 +1,5 @@
+data
+runs
+logs/*.log
+*.npz
+__pycache__/
