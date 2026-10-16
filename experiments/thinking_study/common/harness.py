@@ -19,11 +19,14 @@ import torch.nn.functional as F
 from torch.utils.data import Subset, random_split
 
 REPO = Path(__file__).resolve().parents[3]
-CKPT_ROOT = REPO / "experiments/reproduce_xxs_scaling/runs/logs/checkpoints"
-RUN_DIRS = {
-    "tpp": "baseline-xxs-scaling-105k_2026-10-13_07-23-18_",
-    "s1": "ebt-xxs-scaling-105k_2026-10-13_09-09-28_",
-    "s2": "ebt-s2-xxs-scaling-105k_2026-10-14_05-20-41_",
+REPRO_CKPTS = REPO / "experiments/reproduce_xxs_scaling/runs/logs/checkpoints"
+SCALE_CKPTS = REPO / "experiments/scale_to_16m_sequences/runs/logs/checkpoints"
+RUN_DIRS = {  # key -> (checkpoint root, run-directory glob); trainer dirs are f"{run_name}_{timestamp}_"
+    "tpp": (REPRO_CKPTS, "baseline-xxs-scaling-105k_2026-10-13_07-23-18_"),
+    "s1": (REPRO_CKPTS, "ebt-xxs-scaling-105k_2026-10-13_09-09-28_"),
+    "s2": (REPRO_CKPTS, "ebt-s2-xxs-scaling-105k_2026-10-14_05-20-41_"),
+    "tpp_b64_16m": (SCALE_CKPTS, "tpp-b64-16m_20*"),
+    "s2_b64_16m": (SCALE_CKPTS, "s2-b64-16m_20*"),
 }
 SPLIT_SEED = 33  # seed of the reproduction runs; DDP reset_seed re-seeds with it right before random_split
 PAD_ID = 0  # GPT-NeoX eos == pad; the training loss ignores this target id
@@ -31,7 +34,8 @@ SEQ_LEN = 256
 
 
 def ckpt_path(model: str, step: int = 105000) -> Path:
-    matches = sorted((CKPT_ROOT / RUN_DIRS[model]).glob(f"epoch=epoch=0-step=step={step}-*.ckpt"))
+    root, pattern = RUN_DIRS[model]
+    matches = sorted(p for d in root.glob(pattern) for p in d.glob(f"epoch=epoch=*-step=step={step}-*.ckpt"))
     if len(matches) != 1:
         raise FileNotFoundError(f"expected one checkpoint for {model} step {step}, found {matches}")
     return matches[0]
@@ -50,9 +54,12 @@ def load_model(model: str, step: int = 105000, device: str = "cuda"):
 
 
 def validation_split(hparams: dict) -> Subset:
-    """Rebuild the reproduction's validation split (33,320 docs) exactly."""
+    """Validation set of a run: the fixed indices if the run used them, else the reproduction's seeded split."""
+    from data.fixed_val_split import fixed_val_split
     from data.nlp.pajama_subset import RedPajamaSubsetDataset
 
+    if hparams.get("fixed_val_indices"):
+        return fixed_val_split(RedPajamaSubsetDataset(Namespace(**hparams)), hparams["fixed_val_indices"])[1]
     L.seed_everything(SPLIT_SEED, verbose=False)
     full = RedPajamaSubsetDataset(Namespace(**hparams))
     n_train = int(len(full) * (1 - hparams["validation_split_pct"]))

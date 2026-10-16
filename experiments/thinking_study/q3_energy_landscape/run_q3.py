@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from harness import (batches, energy, energy_from_embedding, entropy, eval_subset_indices, landscape_index,
+from harness import (RUN_DIRS, batches, energy, energy_from_embedding, entropy, eval_subset_indices, landscape_index,
                      load_model, mcmc, token_logprob, train_eval_steps, validation_split)
 
 LINE_S = np.linspace(0.0, 2.0, 17)
@@ -174,7 +174,7 @@ def part_b(model, val_ds, idx, n_steps, n_train, alpha, batch_size, seed):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", choices=["s1", "s2"], required=True)
+    ap.add_argument("--model", choices=sorted(RUN_DIRS), required=True)
     ap.add_argument("--step", type=int, default=105000)
     ap.add_argument("--n-steps", type=int, default=32)
     ap.add_argument("--n-seqs-a", type=int, default=256)

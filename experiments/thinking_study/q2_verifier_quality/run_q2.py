@@ -21,7 +21,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from harness import (batches, energy, entropy, eval_subset_indices, load_model, run_mcmc, token_logprob,
+from harness import (RUN_DIRS, batches, energy, entropy, eval_subset_indices, load_model, run_mcmc, token_logprob,
                      tpp_logits, train_eval_steps, validation_split)
 
 LOGP_FLOOR = float(np.log(1e-12))  # log-prob assigned to one-hot candidates that miss the target
@@ -38,7 +38,9 @@ def js_divergence(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", choices=["s1", "s2"], required=True)
+    ap.add_argument("--model", choices=sorted(RUN_DIRS), required=True)
+    ap.add_argument("--tpp", choices=sorted(RUN_DIRS), default="tpp", help="T++ run for off-trajectory candidates")
+    ap.add_argument("--tpp-step", type=int, default=105000)
     ap.add_argument("--step", type=int, default=105000)
     ap.add_argument("--noise", type=float, required=True, help="Langevin std at inference")
     ap.add_argument("--n-candidates", type=int, default=32)
@@ -50,7 +52,7 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     model, hparams = load_model(args.model, args.step)
-    tpp, _ = load_model("tpp")
+    tpp, _ = load_model(args.tpp, args.tpp_step)
     val_ds = validation_split(hparams)
     idx = eval_subset_indices(len(val_ds), args.n_seqs)
     n_steps = train_eval_steps(hparams)
