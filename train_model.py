@@ -591,6 +591,7 @@ if __name__ == '__main__':
     parser.add_argument("--ffprobe_path", help="path to ffprobe binary", default="")
 
     parser.add_argument("--validation_split_pct", help="if training and validation set are being split - which percent is validation", type=float, default=0.1)
+    parser.add_argument("--fixed_val_indices", help="path to a .npy of validation indices into the full dataset; overrides validation_split_pct", type=str, default="")
     
     parser.add_argument("--test_split_pct", help="if training, validation, and test set are being split - which percent is test. by default this is not used", type=float, default=0)
     
