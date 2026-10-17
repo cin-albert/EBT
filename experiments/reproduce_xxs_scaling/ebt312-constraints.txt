@@ -1,0 +1,7 @@
+torch==2.4.0
+pytorch-lightning==2.4.0
+transformers==4.44.2
+tokenizers==0.19.1
+datasets==3.0.0
+huggingface-hub==0.36.2
+trackio==0.20.2

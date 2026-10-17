@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torchvision import transforms
 from torchvision.transforms import ToPILImage
 from torch.distributed import all_reduce
-import wandb
+# import wandb
+import trackio as wandb
 import gc
 
 from data.vid.ucf_dataloader import *
@@ -17,6 +18,7 @@ from data.img.coco_medium_dataset import COCOMediumDataset
 from data.vid.aggregate_dataloader import *
 from data.vid.vid_synthetic_dataset import VIDSyntheticDataset
 from data.nlp.pajama_dataloader import RedPajamaDataset
+from data.nlp.pajama_subset import RedPajamaSubsetDataset
 from data.nlp.fineweb_dataloader import FineWebDataset
 from data.nlp.collator import NLP_HF_Collator
 from data.nlp.bigbench_dataloader import BigBenchDataset
@@ -444,6 +446,8 @@ class ModelTrainer(L.LightningModule):
             self.full_ds = VIDSyntheticDataset(self.hparams)
         elif self.hparams.dataset_name == "pajama":
             self.full_ds = RedPajamaDataset(self.hparams)
+        elif self.hparams.dataset_name == "pajama_subset":
+            self.full_ds = RedPajamaSubsetDataset(self.hparams)
         elif self.hparams.dataset_name == 'fineweb':
             self.full_ds = FineWebDataset(self.hparams)
         elif "bigbench" in self.hparams.dataset_name:
@@ -465,7 +469,7 @@ class ModelTrainer(L.LightningModule):
 
         if stage == "fit":
             # all of these conditions need to have manual split
-            if self.hparams.dataset_name in ["coco_tiny", "ucf101", "vid_synthetic", "pajama", "fineweb", "bigbench", "planbench", "nlp_synthetic"]:
+            if self.hparams.dataset_name in ["coco_tiny", "ucf101", "vid_synthetic", "pajama", "pajama_subset", "fineweb", "bigbench", "planbench", "nlp_synthetic"]:
                 self.create_full_ds()
                 train_samples = int(len(self.full_ds) * (1 - self.hparams.validation_split_pct))
                 valid_samples = len(self.full_ds) - train_samples

@@ -156,3 +156,8 @@ work.sh
 **/.nfs000*
 inference_results/**
 CLAUDE.md
+# local run outputs
+logs/
+experiments/reproduce_xxs_scaling/data
+experiments/reproduce_xxs_scaling/logs/
+experiments/reproduce_xxs_scaling/runs/
