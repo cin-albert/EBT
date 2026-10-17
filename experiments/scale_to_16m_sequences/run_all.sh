@@ -6,6 +6,7 @@ WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${GPU_IDS:?set GPU_IDS}"
 run() {  # model run_name max_steps val_interval [extra]
   local model=$1 name=$2 steps=$3 every=$4; shift 4
+  sleep 60  # let the previous run's DDP workers release GPU memory (common.sh refuses busy GPUs)
   echo "=== $name start $(date -Is)"
   GPU_IDS=$GPU_IDS bash "$WS/run_$model.sh" --run_name "$name" --max_steps "$steps" --val_check_interval "$every" "$@" \
     > "$WS/logs/$name.log" 2>&1
