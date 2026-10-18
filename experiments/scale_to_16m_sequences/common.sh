@@ -15,6 +15,7 @@ for id in ${GPU_IDS//,/ }; do
 done
 export CUDA_VISIBLE_DEVICES="$GPU_IDS"
 export TRACKIO_DIR="$WS/runs/trackio"
+export TMPDIR=/mnt/data/quangnx/tmp  # / (with /home, /tmp) is shared and filled up once (crashed S2 at step 50,976); short path: AF_UNIX sockets cap at 107 chars
 cd "$WS/runs"  # train_model.py writes ./logs/{checkpoints,csv}
 
 COMMON_ARGS=(
