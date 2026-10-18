@@ -1,6 +1,7 @@
 ---
 title: "Q3 — Energy landscape and update-map properties"
 date: 2026-10-15
+updated: 2026-10-18
 tags: [ebt, thinking-study, energy-landscape]
 ---
 
@@ -116,6 +117,101 @@ Mean CE of the prediction after k steps:
   - Once S1 is past its trained steps, lowering energy carries no information about the loss.
 - **Successive gradients are almost collinear:** cos(g_t, g_{t−1}) ≈ 0.97 at step 1 and 0.998–1.0 afterwards, for both models.
 
+### 3.4 Gradient magnitude, critical points, sharpness and smoothness (offline re-analysis)
+
+Computed from the saved Part A / Part B arrays by `analyze_q3_extra.py` (no new forward passes) → `results/*/metrics_extra.json`. ‖g_p‖ is the centered gradient with respect to p (Part A, 55,825 tokens). Eigenvalues are of ∇²_eE (Part B, 6,949 tokens). "Trained state" = S2 t = 2, S1 t = 1.
+
+**Gradient magnitude: no vanishing, no exploding, and no decay at convergence.**
+
+| | S2 t=0 | S2 trained | S2 t=31 | S1 t=0 | S1 trained | S1 t=31 |
+|---|---|---|---|---|---|---|
+| Median ‖g_p‖ | 504 | 253 | 230 | 2.12 | 2.31 | 2.33 |
+| p99 / p1 of ‖g_p‖ | 3.1 | 2.9 | 3.5 | 3.7 | 3.2 | 3.2 |
+
+- The spread across tokens is narrow (p99/p1 ≈ 3) and stable over steps. The median ratio ‖g_p‖ at t = 31 / trained state is 0.94 (S2) and 1.01 (S1); no token drops by more than 10×.
+- **The states the loop reaches are not stationary points of E.** The energy gradient is as large at t = 31 as at the trained state. This is consistent with §2: at a fixed point, α∇_pE is balanced by the entropy term of Φ, not driven to zero. Since g_p = W_vᵀ g_e, g_p ≠ 0 also implies ∇_eE ≠ 0. So none of these states is a local minimum or a saddle point of E in the strict sense.
+- **Steps are large relative to the domain of p.** α · median ‖g_p‖ at the trained state is about 1,266 (S2) and 1,219 (S1), for p ∈ [0, 1]. The update is therefore close to softmax(−α g_p), a jump to the minimizer of the linearized objective rather than a small GD step. This explains the short memory of §2. The two models differ by about 100× in ‖g_p‖, but their α · ‖g_p‖ products are nearly equal: the learned energy scale compensates for α.
+- Gradient size is not a difficulty signal: corr(log ‖g_p‖, final CE) = −0.34 (S2) and −0.23 (S1).
+
+**Shape of the curvature at the visited states.**
+
+| | S2 t=0 | S2 t=2 | S2 t=31 | S1 t=0 | S1 t=1 | S1 t=31 |
+|---|---|---|---|---|---|---|
+| Strong positive directions (λ > 0.1 λ_max), median | 9 | 7 | 11 | 49 | 29 | 30 |
+| Strong negative directions (λ < −0.1 λ_max), median | 102 | 5 | 7 | 67 | 55 | 56 |
+| Flat eigenvalues (\|λ\| < 1% of max\|λ\|), median share | 4% | 39% | 28% | 12% | 14% | 14% |
+| Tokens with trace(H) < 0 | 99.8% | 6.9% | 4.5% | 79% | 84% | 81% |
+| Tokens with \|λ_min\| > λ_max | 82% | 3.6% | 5.3% | 44% | 41% | 43% |
+| α · median λ_max | 22 | 24 | 17 | 23 | 27 | 27 |
+
+- **S2:** the initial-noise region is almost concave (trace < 0 for 99.8% of tokens, about 100 strong negative directions), which fits ρ > 1 at t = 0. After two steps the loop sits in a **valley-like region**: a handful of strong positive directions, a few strong negative ones, and a large flat bulk. It is close to convex in the directions that matter, but still saddle-shaped through many weak negative directions.
+- **S1:** negative and positive curvature are balanced at every state (|λ_min| ≈ 0.9 λ_max, trace < 0 for about 80% of tokens). The shape barely changes from t = 0 to t = 31: S1's loop does not move into a differently shaped region.
+- **Effective sharpness is the same for both models.** λ_max differs by about 100× (S2 4.79 vs S1 0.051 at the trained state), but α · λ_max is about 24 vs 27. This product is measured in e-coordinates; the update sees α W_vᵀ H W_v, so the comparison is indicative only. Because α · λ_max ≫ 2, plain GD on E would diverge along the stiff directions; the loop stays bounded through the softmax and the entropy term of Φ.
+- Implication: an optimizer that only minimizes E (plain GD, Newton, search) would keep following the negative-curvature directions, and E keeps decreasing (line argmin of E at s = 2, the edge of the scan). Together with Q2 (lower energy ⇒ sharper distribution), this is a path to over-sharp, wrong predictions.
+
+**Smoothness along the update direction** (s ∈ [0, 2], 17 points; roughness = max|Δ²E| / |E(2) − E(0)|):
+
+| | S2 t=0 | S2 t=2 | S2 t=31 | S1 t=1 | S1 t=31 |
+|---|---|---|---|---|---|
+| Sign changes of dE/ds, median | 2 | 0 | 0 | 0 | 0 |
+| Roughness of E, median | 0.21 | 0.068 | 0.058 | 0.037 | 0.039 |
+| Tokens where E is convex along the line | 5.9% | 66% | 67% | 1.5% | 1.4% |
+| Interior minima of CE along the line, median | 1 | 1 | 1 | 1 | 1 |
+
+- After the first step, E is smooth and monotone along the update for most tokens. The noise region (S2 t = 0) is about 3× rougher.
+- Along the line, S2's E is convex for two thirds of tokens, while S1's is almost always concave, so S1's energy falls faster toward the edge of the scan.
+- CE is unimodal along the line, with one interior minimum (s ≈ 1.25–1.75, §3.3); E has none. In the tail (p99) the CE roughness reaches 1–7, so a few tokens react sharply to the step size, probably where p is saturated.
+
+**Period-2 oscillation (limit cycle).** The tokens that do not converge in §3.2 mostly flip-flop with period 2 rather than drift.
+
+| | S2, noise 0 | S1, noise 0 |
+|---|---|---|
+| Not converged at t = 31 (TV ≥ 0.01) | 17.7% | 3.2% |
+| 2-cycle-like (\|logp₃₁ − logp₂₉\| < 0.1 · \|logp₃₁ − logp₃₀\|) | 16.2% | 2.9% |
+| Share of the non-converged tokens that are 2-cycle-like | 92% | 89% |
+| Median TV per step of 2-cycle tokens | 0.19 | 0.28 |
+| Mean CE after k = 31 / k = 32 | 3.996 / 4.041 | 3.872 / 3.871 |
+
+- For S2, the mean CE keeps alternating between odd and even k up to k = 32 (and so does the mean entropy, 4.95 ↔ 5.14), so odd step counts are always better. The best value, 3.943 at k = 3, is odd.
+- Hypothesis, not tested: with α · λ_max ≈ 24, the update map has an eigenvalue near −1 for these tokens. This does not fully agree with the measured ρ at t = 31, which exceeds 1 for only 0.3% (S2) and 0.6% (S1) of tokens. Either the power-iteration estimate misses negative or complex dominant eigenvalues (see the Scope note), or the cycle is a non-linear effect.
+- A cheap lever follows: damping the update, e.g. p ← ½(p + T(p)), would remove a pure 2-cycle. Its effect on CE is untested.
+- Data cannot answer: whether E has true local minima elsewhere. That needs a separate experiment, e.g. plain GD on E from many initial points, classifying where it stops.
+
+### 3.5 Figures
+
+Drawn by `plot_q3.py` from the saved Q2/Q3 arrays; chart design in [[ENERGY_LANDSCAPE_VISUALIZATIONS]]. Median lines with p10–p90 bands unless stated.
+
+**Thinking longer (§3.1).** CE is best at the trained step count; S2 without noise alternates odd/even up to k = 32 (2-cycle, §3.4); Φ is flat after two steps while E and entropy still move.
+
+![2_6_thinking_longer](figures/2_6_thinking_longer.png)
+
+**Gradient size (§3.4).** α‖g_p‖ stays near 1.2k for both models and does not decay at convergence: the end points are not stationary points of E.
+
+![2_1_gradient_norm](figures/2_1_gradient_norm.png)
+
+**Gradient direction (§3.3).** cos(g_t, g_{t−1}) ≈ 1 after t = 1. With an overwriting update this is a fixed-point signature, not evidence of a straight path.
+
+![2_2a_gradient_cos](figures/2_2a_gradient_cos.png)
+
+**Stability of the update map (§3.3).** S2 expands at t = 0 (median ρ 1.39) and contracts later; S1 contracts from the start.
+
+![2_3a_rho](figures/2_3a_rho.png)
+
+**Hessian spectrum (§3.3, §3.4).** S2 moves from mostly negative curvature (91%) to a valley shape (33–37% negative); S1 keeps a balanced saddle shape at every state.
+
+![2_3b_hessian_spectrum](figures/2_3b_hessian_spectrum.png)
+
+**1D slices along the update (§2, §3.3).** Φ is minimized at s = 1; E keeps falling to s = 2. The CE band is wide for s > 1: a longer step helps some tokens and hurts many.
+
+![2_4_line_slices](figures/2_4_line_slices.png)
+
+> [!note] Normalization
+> Each curve is min–max normalized per token before the median is taken. The median-curve argmin of CE for S1 is ≈1.6, while the median of per-token argmins (table in §3.3) is 1.25. Both are correct; they summarize different things.
+
+**Energy vs entropy (Q2 arrays).** Across tokens the link is moderate (Spearman E–H 0.46 for S1, 0.23 for S2). Within a token, sign(ΔE) = sign(ΔH) for 97% of candidate pairs (20k pairs of candidates 0 and 1, S2 σ = 3; Q2 reports 98% over all pairs), while correct and wrong rankings are mixed along the diagonal: the energy ranks by sharpness.
+
+![2_5_energy_entropy](figures/2_5_energy_entropy.png)
+
 ## 4. Implications for replacing plain GD in training (Gap 3)
 
 These are hypotheses for a training-time study, ranked by how directly the data supports them. They are not results.
@@ -127,6 +223,7 @@ These are hypotheses for a training-time study, ranked by how directly the data 
 | **Step-size / temperature control** | Φ is line-minimized at s = 1 while CE prefers s ≈ 1.25–1.75; the trained step count beats more steps | The effective objective is Φ at temperature 1/α. Learning α per step or per token (S1 already learns a global α) is a cheaper lever than a new optimizer |
 | **Momentum / Nesterov** | Gradients already collinear (cos ≈ 1) and the map contracts (ρ ≈ 0.35–0.5) | Little to gain for loss. It may speed fixed-point convergence, but convergence is not what limits loss here |
 | **Stopping rule** | Steps to converge correlate with entropy (0.81 for S2) | Per-token adaptive compute is feasible for S2. It should stop near the trained step count, not at convergence |
+| **Damping** (p ← ½(p + T(p))) | 92% of S2's non-converged tokens are in a 2-cycle; α · λ_max ≈ 24 (§3.4) | Would remove a pure period-2 oscillation without extra steps. Effect on CE untested |
 
 > [!warning] Scope
 > - Single checkpoint per model (105k), xxs, one seed. Part B uses 6,949 tokens.
@@ -140,4 +237,9 @@ cd refs/EBT/experiments/thinking_study
 GPU_ID=4 bash q3_energy_landscape/run_all.sh          # ~25 min on one H100 NVL
 PYTHONPATH=$PWD/common /mnt/data/conda-envs/quangnx/ebt312/bin/python q3_energy_landscape/analyze_q3.py \
   q3_energy_landscape/results/s2_step105000 q3_energy_landscape/results/s1_step105000
+# §3.4, offline from the saved arrays (seconds, CPU only) -> results/*/metrics_extra.json
+PYTHONPATH=$PWD/common /mnt/data/conda-envs/quangnx/ebt312/bin/python q3_energy_landscape/analyze_q3_extra.py \
+  q3_energy_landscape/results/s2_step105000 q3_energy_landscape/results/s1_step105000
+# §3.5 figures (CPU, ~1 min) -> q3_energy_landscape/figures/*.png
+/mnt/data/conda-envs/quangnx/ebt312/bin/python q3_energy_landscape/plot_q3.py
 ```
