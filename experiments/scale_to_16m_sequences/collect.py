@@ -20,7 +20,12 @@ CURVE = WS / "results/q2"  # s2_b64_16m_step<N>_noise3 along the 16M run
 
 
 def curve(run_dir: Path) -> dict[int, float]:
-    return {r["step"]: comparable_loss(r) for r in read_valid_rows(sorted(glob.glob(str(run_dir / "version_*/metrics.csv"))))}
+    """Validation loss per logged step; on duplicates keep the first, since a resumed run re-validates its restart step."""
+    out: dict[int, float] = {}
+    for csv_path in sorted(glob.glob(str(run_dir / "version_*/metrics.csv"))):
+        for r in read_valid_rows([csv_path]):
+            out.setdefault(r["step"], comparable_loss(r))
+    return out
 
 
 def point_row(label: str, tpp_dir: Path, s2_dir: Path, q2_dir: Path, q3_dir: Path) -> str:
@@ -42,11 +47,11 @@ def main() -> None:
     tpp, s2 = (curve(d) for d in POINTS["16M seqs, b64 (250k)"][:2])
     lines += ["", "## Gap along the 16M run", "", "| step | T++ | S2 | gap | Q2 BoN-32 efficiency (σ=3) | Q2 consistency |",
               "|---|---|---|---|---|---|"]
-    for k in sorted(set(tpp) & set(s2)):
-        m = CURVE / f"s2_b64_16m_step{k}_noise3/metrics.json"
+    for k in sorted(set(tpp) & set(s2)):  # CSV logs validation at global step - 1
+        m = CURVE / f"s2_b64_16m_step{k + 1}_noise3/metrics.json"
         q2 = json.loads(m.read_text())["e_final"] if m.exists() else None
         q2_cells = f"{q2['best_of_n']['32']['verifier_efficiency']:+.2f} | {q2['pairwise_consistency_gap_gt_0.1'][0]:.3f}" if q2 else "– | –"
-        lines.append(f"| {k} | {tpp[k]:.4f} | {s2[k]:.4f} | {s2[k] - tpp[k]:+.4f} | {q2_cells} |")
+        lines.append(f"| {k + 1} | {tpp[k]:.4f} | {s2[k]:.4f} | {s2[k] - tpp[k]:+.4f} | {q2_cells} |")
     out = WS / "report/result.md"
     out.parent.mkdir(exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
