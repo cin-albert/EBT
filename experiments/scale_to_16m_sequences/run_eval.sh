@@ -10,12 +10,12 @@ PY=/mnt/data/conda-envs/quangnx/ebt312/bin/python
 export TMPDIR=/mnt/data/quangnx/tmp HF_HOME=/mnt/data/quangnx/huggingface PYTHONPATH="$REPO:$TS/common" CUDA_VISIBLE_DEVICES="${GPU_ID:?set GPU_ID}"
 cd "$REPO"
 q2() {  # key step noise tpp_key tpp_step
-  local out="$WS/results/q2/${1}_step${2}_noise${3}"
+  local out="$WS/results/q2_verifier_quality/${1}_step${2}_noise${3}"
   $PY "$TS/q2_verifier_quality/run_q2.py" --model "$1" --step "$2" --noise "$3" --tpp "$4" --tpp-step "$5" --out-dir "$out"
   $PY "$TS/q2_verifier_quality/analyze_q2.py" "$out" > "$out/metrics.log"
 }
 q3() {  # key step
-  local out="$WS/results/q3/${1}_step${2}"
+  local out="$WS/results/q3_energy_landscape/${1}_step${2}"
   $PY "$TS/q3_energy_landscape/run_q3.py" --model "$1" --step "$2" --out-dir "$out"
   $PY "$TS/q3_energy_landscape/analyze_q3.py" "$out"
 }

@@ -8,7 +8,7 @@ tags: [ebt, scaling, thinking-study, verifier, energy-landscape]
 
 > [!summary] TL;DR
 > - **The loss gap shrinks with data, as the paper predicts.** At 16M sequences (batch 64, 250k steps) the S2 − Transformer++ validation gap is **+0.179 nats**, vs +0.247 at 3.36M (batch 32). It falls steadily along the run (0.306 at 25k → 0.179 at 250k) and lands near the log-linear interpolation toward the paper (≈ 0.17).
-> - **The verifier does not get better than at the small point.** BoN-32 efficiency at σ = 3 is −0.21 (vs −0.20) and pairwise consistency is 0.628 (vs 0.623). Within the 16M run both improve monotonically (−0.43 → −0.21, 0.559 → 0.628), but they only climb back to the 3.36M/b32 level. Lowest-energy selection is still harmful from N = 4 on, and the energy still ranks by sharpness (97.5% of pairs).
+> - **The verifier does not get better than at the small point.** BoN-32 efficiency at σ = 3 is −0.21 (vs −0.20) and pairwise consistency is 0.628 (vs 0.623). Within the 16M run both improve monotonically (−0.43 → −0.21, 0.559 → 0.628), but they only climb back to the 3.36M/b32 level. Lowest-energy selection is still harmful from N = 4 on, and the energy still ranks by sharpness (97.5% of pairs): as a selector, entropy alone does as well as E (§2.5).
 > - **Thinking longer still does not help.** The best step count is still the trained one (k = 3), and the penalty for 32 steps is essentially unchanged (+0.093 vs +0.097 nats). The Q3 mechanism findings carry over to 16M. The loss gap closes without selection by energy or extra inference steps getting any better.
 
 ## 1. Setup
@@ -107,6 +107,63 @@ Mean CE after k steps (noise 0; 256 sequences):
   - The effective dimension grew (participation ratio 20 → 24 at the trained state, 30 → 37 at t = 0) and the curvature became more anisotropic (75 → 104).
   - At the initial noise (t = 0) the map expands more (median ρ 1.39 → 1.86).
 
+### 2.4 Q3 — extra landscape metrics and figures (S2 105k/b32 vs 250k/b64)
+
+From `analyze_q3_extra.py` (offline, same Q3 arrays as §2.3; medians over tokens unless noted):
+
+| Metric | 3.36M / b32 | 16M |
+|---|---|---|
+| α · median ‖∇_pE‖ at the trained state (noise 0) | 1266 | 1324 |
+| Median ratio ‖∇_pE‖ at t = 31 / trained state | 0.94 | 0.94 |
+| Tokens not converged at t = 31 (TV ≥ 0.01, noise 0) | 17.7% | 14.4% |
+| Tokens in a 2-cycle at t = 31 (noise 0) | 16.2% | 13.2% |
+| Mean \|ΔE\| per step after step 10 (noise 0) | 0.043 | 0.034 |
+| t = 0: strongly negative eigenvalues (< −0.1 λ_max), of 384 | 102 | 283 |
+| t = 0: share of tokens with \|λ_min\| > λ_max | 82% | 93% |
+| t = 2: share of flat eigenvalues (\|λ\| < 0.01 max\|λ\|) | 39% | 51% |
+| t = 2: share of tokens with negative Hessian trace | 6.9% | 2.5% |
+| Share of tokens where E is convex along the update line, t = 2 / t = 31 | 66% / 67% | 53% / 57% |
+| Share of tokens where Φ is convex along the update line, t = 2 / t = 31 | 0.6% / 3.9% | 0.5% / 2.8% |
+| Spearman(E, H) across tokens (Q2 σ = 0, candidate 0) | 0.23 | 0.41 |
+
+- **The landscape shape is the same.** Every figure below shows the same picture at both points: no vanishing or exploding gradient, a near-constant gradient direction after t = 1, contraction after the first steps, the Φ line-minimizer near s = 1, and the even/odd alternation.
+- **What moved.**
+  - The initial noise sits in a more concave region: 283 vs 102 strongly negative directions, and ρ 1.86 vs 1.39.
+  - At the trained state the Hessian is flatter: more flat eigenvalues, fewer tokens with a negative trace.
+  - Fewer tokens end in a 2-cycle (16% → 13%).
+  - Across tokens, E is more correlated with entropy (0.23 → 0.41).
+- Along the update line, E is convex for fewer tokens (66% → 53% at t = 2). This sits alongside the drop in negative Hessian eigenvalues (§2.3), so the two curvature views do not agree on a single direction of change.
+
+Figures (`plot_q3.py --set scale16m`; blue = 3.36M/b32, orange = 16M):
+
+![2.6 Thinking longer](figures/2_6_thinking_longer.png)
+![2.1 Gradient size](figures/2_1_gradient_norm.png)
+![2.2A Gradient direction](figures/2_2a_gradient_cos.png)
+![2.3A Update-map stability](figures/2_3a_rho.png)
+![2.3B Hessian spectrum](figures/2_3b_hessian_spectrum.png)
+![2.4 Line slices along the update](figures/2_4_line_slices.png)
+![2.5 Energy vs entropy](figures/2_5_energy_entropy.png)
+
+### 2.5 Is the energy only an entropy score among candidates?
+
+Within one token, compare candidates 0 and 1 of the Q2 σ = 3 runs (pairs with |ΔCE| > 0.1). "Right" means the candidate with the lower score also has the lower CE (`entropy_vs_energy.py`):
+
+| Metric | 3.36M / b32 | 16M |
+|---|---|---|
+| Pairs | 154,969 | 149,426 |
+| Lower E is right | 62.3% | 62.8% |
+| Lower entropy H is right | 62.2% | 62.6% |
+| R² of a linear fit ΔE ~ ΔH | 0.976 | 0.976 |
+| Residual of E after the fit on H is right | 56.7% | 56.6% |
+| BoN-32 CE, selecting by E / by H | 4.0232 / 4.0282 | 3.7994 / 3.8042 |
+| CE of candidate 0 (no selection) / oracle-32 | 3.9224 / 3.4138 | 3.7013 / 3.2207 |
+
+- **As a selector, E is almost exactly a linear function of the prediction's entropy.** Entropy alone ranks pairs as well as E and gives almost the same BoN-32 CE. Both are worse than no selection.
+- **E is not only entropy.** The part of ΔE not explained by ΔH still ranks 56.7% of pairs correctly, above the 50% of a random pick. The energy carries some candidate-quality signal beyond sharpness, but sharpness dominates it.
+- The 0.976 R² is partly a product of the candidate set: σ = 3 noise yields candidates that differ mostly in sharpness. Across tokens, E and H are much less related (Spearman 0.23 / 0.41, §2.4).
+- **This concerns the energy's scalar value, not its gradient.** H(p) does not depend on the context, so it cannot replace ∇E as the update direction: the loop's move from noise to a prediction (CE 5.58 at k = 1 → 3.72 at k = 3) needs the context, which only E sees.
+- Not tested here: whether the residual is a usable selector (BoN by E − βH), and which other per-candidate features (‖p‖², max probability, token frequency) the residual tracks.
+
 ## 3. Verdicts on the pre-registered claims
 
 | Claim (plan §0) | Threshold | Result | Verdict |
@@ -145,5 +202,10 @@ GPU_IDS=4,5 bash run_s2.sh --run_name s2-b64-16m --max_steps 250000 --val_check_
   --resume_training_ckpt <abs path>/last.ckpt --resume_data_offset_steps N
 GPU_ID=4 PART=final bash run_eval.sh                            # Q2 σ=3/0 and Q3 at 250k, ~20 min
 GPU_ID=5 PART=curve bash run_eval.sh                            # Q2 σ=3 at 50k-200k, ~25 min
-/mnt/data/conda-envs/quangnx/ebt312/bin/python collect.py      # writes report/result.md
+PY=/mnt/data/conda-envs/quangnx/ebt312/bin/python
+$PY collect.py                                                  # writes report/result.md
+$PY ../thinking_study/q3_energy_landscape/analyze_q3_extra.py results/q3_energy_landscape/s2_b64_16m_step250000
+$PY ../thinking_study/q3_energy_landscape/plot_q3.py --set scale16m   # report/figures/*.png (§2.4)
+$PY entropy_vs_energy.py ../thinking_study/q2_verifier_quality/results/s2_step105000_noise3 \
+  results/q2_verifier_quality/s2_b64_16m_step250000_noise3      # §2.5
 ```

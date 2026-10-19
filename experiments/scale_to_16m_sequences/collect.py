@@ -14,9 +14,9 @@ POINTS = {  # label -> (T++ csv dir, S2 csv dir, Q2 dir σ=3, Q3 dir)
     "3.36M seqs, b32 (105k)": (REPRO / "runs/logs/csv/baseline-xxs-scaling-105k", REPRO / "runs/logs/csv/ebt-s2-xxs-scaling-105k",
                               TS / "q2_verifier_quality/results/s2_step105000_noise3", TS / "q3_energy_landscape/results/s2_step105000"),
     "16M seqs, b64 (250k)": (WS / "runs/logs/csv/tpp-b64-16m", WS / "runs/logs/csv/s2-b64-16m",
-                            WS / "results/q2/s2_b64_16m_step250000_noise3", WS / "results/q3/s2_b64_16m_step250000"),
+                            WS / "results/q2_verifier_quality/s2_b64_16m_step250000_noise3", WS / "results/q3_energy_landscape/s2_b64_16m_step250000"),
 }
-CURVE = WS / "results/q2"  # s2_b64_16m_step<N>_noise3 along the 16M run
+CURVE = WS / "results/q2_verifier_quality"  # s2_b64_16m_step<N>_noise3 along the 16M run
 
 
 def curve(run_dir: Path) -> dict[int, float]:
