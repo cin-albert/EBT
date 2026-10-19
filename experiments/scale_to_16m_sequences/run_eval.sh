@@ -7,7 +7,7 @@ WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$WS/../.." && pwd)"
 TS="$REPO/experiments/thinking_study"
 PY=/mnt/data/conda-envs/quangnx/ebt312/bin/python
-export HF_HOME=/mnt/data/quangnx/huggingface PYTHONPATH="$REPO:$TS/common" CUDA_VISIBLE_DEVICES="${GPU_ID:?set GPU_ID}"
+export TMPDIR=/mnt/data/quangnx/tmp HF_HOME=/mnt/data/quangnx/huggingface PYTHONPATH="$REPO:$TS/common" CUDA_VISIBLE_DEVICES="${GPU_ID:?set GPU_ID}"
 cd "$REPO"
 q2() {  # key step noise tpp_key tpp_step
   local out="$WS/results/q2/${1}_step${2}_noise${3}"
