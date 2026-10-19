@@ -1,0 +1,23 @@
+{
+ "model": "s1",
+ "step": 90000,
+ "noise": 0.0,
+ "n_candidates": 32,
+ "n_seqs": 1024,
+ "batch_size": 16,
+ "seed": 0,
+ "out_dir": "/home/quangnx/workspace/ebt/refs/EBT/experiments/thinking_study/q2_verifier_quality/results/s1_step90000_noise0",
+ "n_steps": 2,
+ "alpha": 527.2562866210938,
+ "landscape": 1,
+ "off_trajectory": [
+  "tpp_T0.5",
+  "tpp_T1.0",
+  "tpp_T2.0",
+  "onehot_target",
+  "onehot_tpp_argmax",
+  "uniform"
+ ],
+ "n_tokens": 228522,
+ "seconds": 245.3
+}

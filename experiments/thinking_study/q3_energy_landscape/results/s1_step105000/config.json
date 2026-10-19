@@ -1,0 +1,19 @@
+{
+ "model": "s1",
+ "step": 105000,
+ "n_steps": 32,
+ "n_seqs_a": 256,
+ "n_seqs_b": 32,
+ "batch_size_a": 16,
+ "batch_size_b": 4,
+ "seed": 0,
+ "out_dir": "/home/quangnx/workspace/ebt/refs/EBT/experiments/thinking_study/q3_energy_landscape/results/s1_step105000",
+ "reuse_part_a": true,
+ "alpha": 528.9260864257812,
+ "n_train_steps": 2,
+ "noises": [
+  0.0
+ ],
+ "mcmc_num_steps": 2,
+ "seconds": 487.2
+}

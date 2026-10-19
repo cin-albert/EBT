@@ -1,0 +1,45 @@
+{
+ "tpp": {
+  "n_val_docs": 33320,
+  "logged": {
+   "loss": 3.6964
+  },
+  "reproduced": {
+   "loss": 3.69635154974847
+  }
+ },
+ "s1": {
+  "n_val_docs": 33320,
+  "logged": {
+   "final_step_loss": 3.8373,
+   "initial_loss": 3.8563
+  },
+  "reproduced": {
+   "loss": 3.846804502001759,
+   "initial_loss": 3.8563319560574167,
+   "final_step_loss": 3.8372770509227556
+  },
+  "loop_max_abs_diff": 0.21149444580078125,
+  "block_diagonal": {
+   "changed_position_max_diff": 0.004187792539596558,
+   "other_positions_max_diff": 0.0
+  }
+ },
+ "s2": {
+  "n_val_docs": 33320,
+  "logged": {
+   "final_step_loss": 3.9431,
+   "initial_loss": 6.1643
+  },
+  "reproduced": {
+   "loss": 3.9432035467347033,
+   "initial_loss": 6.16441578195304,
+   "final_step_loss": 3.9432035467347033
+  },
+  "loop_max_abs_diff": 0.01926422119140625,
+  "block_diagonal": {
+   "changed_position_max_diff": 1.1974353790283203,
+   "other_positions_max_diff": 0.0
+  }
+ }
+}

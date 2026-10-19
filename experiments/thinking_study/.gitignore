@@ -1,0 +1,3 @@
+# raw per-token arrays are large; derived metrics.json/config.json are tracked
+*.npz
+__pycache__/
