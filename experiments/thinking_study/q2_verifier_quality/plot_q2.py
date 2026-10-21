@@ -10,6 +10,8 @@ Usage:
     default: two standalone figures, OUT_STEM_curves.png (first --panels run only) and
              OUT_STEM_gain_over_random.png (--runs)
     --combined: one 3-panel figure at --out instead (two curve panels + gain panel)
+  python q2_verifier_quality/plot_q2.py --results DIR --out FILE.png --grid RUN ... --titles TITLE ...
+    --grid: one curve panel per run (e.g. one per OOD set), 2 columns, independent y-axes
 """
 import argparse
 import json
@@ -123,6 +125,21 @@ def split_figures(args):
     print(f"wrote {path}")
 
 
+def grid_figure(args):
+    rows = (len(args.grid) + 1) // 2
+    fig, axes = plt.subplots(rows, 2, figsize=(12, 4 * rows), squeeze=False)
+    for ax, run, title in zip(axes.flat, args.grid, args.titles or args.grid):
+        curves_panel(ax, run, title)
+    for ax in axes.flat[len(args.grid):]:
+        ax.set_visible(False)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=4, fontsize=8)
+    fig.suptitle(args.title, fontsize=10)
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.savefig(args.out)
+    print(f"wrote {args.out}")
+
+
 def main():
     global RES
     ap = argparse.ArgumentParser()
@@ -135,11 +152,16 @@ def main():
     ap.add_argument("--title", default="Q2  Best-of-N by lowest energy: helps only at N = 2, then hurts; "
                                        "without Langevin noise (σ = 0) there is nothing to choose")
     ap.add_argument("--combined", action="store_true")
+    ap.add_argument("--grid", nargs="+", help="one curve panel per run")
+    ap.add_argument("--titles", nargs="+", help="panel titles for --grid (default: run names)")
     ap.add_argument("--gain-title", default="Lowest-energy BoN vs a random pick, by run\n"
                     "(xxs, 105k / 90k; above 0 = picking by energy is worse than random)")
     args = ap.parse_args()
     RES = args.results
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.grid:
+        grid_figure(args)
+        return
     if not args.combined:
         split_figures(args)
         return

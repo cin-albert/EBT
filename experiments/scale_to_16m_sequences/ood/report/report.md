@@ -65,6 +65,11 @@ CE(lowest-energy pick) − CE(random pick), σ = 3; negative = energy helps:
 - On the other three sets, energy selection is harmful already at N = 2. The harm at N = 32 is largest on the two BigBench sets (+0.22, +0.32 vs +0.10 in distribution); it is not monotone in shift (GSM8K +0.18 > SQuAD +0.12).
 - Answer tokens only: BoN-32 is harmful on all four sets (+0.12 to +0.64 nats).
 
+![Best-of-N curves per OOD set](figures/q2_bon_curves_ood.png)
+
+- **The energy ordering flips on three OOD sets.** On GSM8K, BB Elementary Math QA and BB Dyck, picking the *highest*-energy candidate gives lower CE than picking the lowest at every N. In distribution (and on SQuAD) the order is the opposite. On the two BigBench sets the highest-energy pick even beats random at small N (CE − random: Elementary Math −0.032 / −0.028 at N = 2 / 4; Dyck −0.052 / −0.058). This fits the sharpness reading in §4: there the sharper (lower-energy) candidate is more often wrong. It is one seed, and the gains vanish by N = 16.
+- The oracle gap is large everywhere (oracle − random at N = 32: −0.54 to −0.75 nats), so the candidates do contain better predictions; the energy does not find them.
+
 ### 2.3 RQ2 — thinking longer
 
 | Set | noise | CE k=3 | best k > 3 (Δ vs k=3) | CE k=32 | best noisy run − noise-0 k=3 |
@@ -122,4 +127,8 @@ PYTHONPATH=$PWD/../..:$PWD/../thinking_study/common $PY ood/prepare_data.py --ou
 GPU_ID=6 DATASETS="gsm8k bigbench_dyck_languages" bash ood/run_ood.sh            # ~16 min
 GPU_ID=7 DATASETS="squad bigbench_elementary_math_qa" bash ood/run_ood.sh        # ~29 min
 $PY ood/collect_ood.py                                                        # report/result.md, figures/ood_shift.png
+P=s2_b64_16m_step250000; $PY ../thinking_study/q2_verifier_quality/plot_q2.py --results results/ood/q2_verifier_quality \
+  --out ood/report/figures/q2_bon_curves_ood.png --grid ${P}_{gsm8k,squad,bigbench_elementary_math_qa,bigbench_dyck_languages}_noise3 \
+  --titles "GSM8K (shift 1.37)" "SQuAD (shift 1.62)" "BB Elementary Math QA (shift 2.78)" "BB Dyck Languages (shift 3.20)" \
+  --title "S2 250k, σ=3 on OOD sets: best-of-N by lowest energy vs random, highest-energy and oracle picks (dotted: Transformer++ 250k)"
 ```
