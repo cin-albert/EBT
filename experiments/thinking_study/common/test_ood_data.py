@@ -56,3 +56,8 @@ def test_rows_are_formatted_by_the_repo_loaders_pretrain_format():
     assert ood_data.loader_texts(GSM8KDataset, [{"question": "q?", "answer": "42"}]) == ["Question: q?\nAnswer: 42"]
     rows = [{"inputs": "Close the brackets: ( [ Answer:", "targets": ["] )"]}]
     assert ood_data.loader_texts(BigBenchDataset, rows) == ["Question: Close the brackets: ( [\nAnswer: ] )"]
+
+
+def test_subset_of_a_short_set_uses_every_item_once():
+    idx = harness.eval_subset_indices(5, 1024)
+    assert sorted(idx) == [0, 1, 2, 3, 4]

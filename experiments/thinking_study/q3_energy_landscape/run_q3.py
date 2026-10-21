@@ -30,8 +30,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from harness import (RUN_DIRS, batches, energy, energy_from_embedding, entropy, eval_subset_indices, landscape_index,
-                     load_model, mcmc, token_logprob, train_eval_steps, validation_split)
+from harness import (RUN_DIRS, answer_masks, batches, energy, energy_from_embedding, entropy, eval_dataset,
+                     eval_subset_indices, landscape_index, load_model, mcmc, token_logprob, train_eval_steps)
 
 LINE_S = np.linspace(0.0, 2.0, 17)
 
@@ -42,8 +42,9 @@ def phi(alpha, e, p):
 
 def part_a(model, val_ds, idx, n_steps, noise, alpha, batch_size, seed):
     fields = ["energy", "phi", "gnorm", "cos_prev", "tv_next", "logp", "entropy"]
-    rec = {k: [] for k in fields + ["logp_final"]}
-    for b, (inputs, targets, mask) in enumerate(batches(val_ds, idx, batch_size)):
+    rec = {k: [] for k in fields + ["logp_final", "answer"]}
+    for b, ((inputs, targets, mask), amask) in enumerate(zip(batches(val_ds, idx, batch_size),
+                                                             answer_masks(val_ds, idx, batch_size))):
         inputs, targets, mask = inputs.cuda(), targets.cuda(), mask.cuda()
         torch.manual_seed(seed + b)
         per = {k: [] for k in fields}
@@ -71,6 +72,7 @@ def part_a(model, val_ds, idx, n_steps, noise, alpha, batch_size, seed):
         for k, v in per.items():
             rec[k].append(torch.stack(v).float().cpu())
         rec["logp_final"].append(token_logprob(z_final, targets)[mask].float().cpu())
+        rec["answer"].append(amask.cuda()[mask].cpu())
         print(f"  A batch {b + 1}", flush=True)
     return {k: torch.cat(v, dim=-1).numpy() for k, v in rec.items()}
 
@@ -184,11 +186,13 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--reuse-part-a", action="store_true", help="skip Part A if its arrays already exist")
+    ap.add_argument("--data", default="rp_val", help="rp_val or an OOD set (ood_data.OOD_SETS)")
+    ap.add_argument("--skip-part-b", action="store_true", help="Part A only (CE after k steps)")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     model, hparams = load_model(args.model, args.step)
-    val_ds = validation_split(hparams)
+    val_ds = eval_dataset(args.data, hparams)
     idx = eval_subset_indices(len(val_ds), max(args.n_seqs_a, args.n_seqs_b))
     alpha = float(model.alpha.clamp(min=1e-4))
     n_train = train_eval_steps(hparams)
@@ -201,9 +205,10 @@ def main():
         print(f"Part A noise={noise}", flush=True)
         arrays = part_a(model, val_ds, idx[: args.n_seqs_a], args.n_steps, noise, alpha, args.batch_size_a, args.seed)
         np.savez_compressed(args.out_dir / f"part_a_noise{noise:g}.npz", **arrays)
-    print("Part B", flush=True)
-    arrays = part_b(model, val_ds, idx[: args.n_seqs_b], args.n_steps, n_train, alpha, args.batch_size_b, args.seed)
-    np.savez_compressed(args.out_dir / "part_b.npz", **arrays, line_s=LINE_S)
+    if not args.skip_part_b:
+        print("Part B", flush=True)
+        arrays = part_b(model, val_ds, idx[: args.n_seqs_b], args.n_steps, n_train, alpha, args.batch_size_b, args.seed)
+        np.savez_compressed(args.out_dir / "part_b.npz", **arrays, line_s=LINE_S)
 
     config = vars(args) | {"out_dir": str(args.out_dir), "alpha": alpha, "n_train_steps": n_train,
                            "noises": noises, "mcmc_num_steps": hparams["mcmc_num_steps"],
