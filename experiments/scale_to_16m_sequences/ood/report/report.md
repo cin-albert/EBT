@@ -87,6 +87,7 @@ The last column is the best noise-3 CE at any k > 3, minus the noise-0 CE at k =
 
 - Self-verification (best N): Spearman(shift, % improvement) = **−0.70**. The gain shrinks into harm as data gets more OOD.
 - Thinking longer (best k > 3, noise 3): Spearman = **+0.70**. This matches the paper's direction, but per §2.3 it measures recovery from the noise's own cost, not a gain over the default inference.
+- The plot and `collect_ood.py` use noise 3 for RQ2 because that is where any gain appears. At noise 0, the RQ2 rows of [result.md](result.md) give Spearman = +0.50 (by hand; −3.2, −2.6, −3.5, −3.0, +0.3%): the only non-negative value is Dyck's +0.3%.
 
 ## 3. Verdicts on the pre-registered claims
 
@@ -94,13 +95,13 @@ The last column is the best noise-3 CE at any k > 3, minus the noise-0 CE at k =
 |---|---|---|---|
 | RQ1: self-verification helps OOD | Best N ∈ {2..32} beats random by > 0.02 nats on ≥ 3/4 sets | 0/4 (best: SQuAD −0.012 at N = 2) | **Not supported** |
 | RQ2: thinking longer helps OOD | min over k > 3 beats k = 3 by > 0.02 nats, at noise 0 or 3, on ≥ 3/4 sets | 1/4 (Dyck at noise 3, −0.062) | **Not supported** |
-| Fig. 7: gains grow with shift | Spearman > 0 over 5 points, for both gains | RQ1 −0.70; RQ2 (noise 3) +0.70 | **Not supported for self-verification** (reversed); RQ2 positive but explained by noise recovery (§2.3). Descriptive only: 5 points, one seed |
+| Fig. 7: gains grow with shift | Spearman > 0 over 5 points, for both gains | RQ1 −0.70; RQ2 +0.70 at noise 3, +0.50 at noise 0 | **Not supported for self-verification** (reversed); RQ2 positive but explained by noise recovery (§2.3). Descriptive only: 5 points, one seed |
 
 ## 4. Interpretation
 
 - The in-distribution findings carry over and get stronger OOD. The energy ranks candidates mostly by sharpness ([scale-16m report](../../report/report.md) §2.5). On sets where the model is less certain, the sharper candidate is more often wrong, so selecting by energy costs more. This is an interpretation consistent with the data; we did not test it separately here.
-- Thinking longer at noise 0 behaves as in distribution: the loop is best at the trained step count (Q3 fixed-point analysis). The Dyck noise-0 exception (k = 17, −0.003 nats on 10.8K tokens) is within what one would expect from noise on the smallest set.
-- The paper's OOD gains (up to 29% in Fig. 6a; 18.7% on Dyck in Table 2) come from models trained with batch 128 for 1M steps, and the paper reports that thinking gains grow with training (Fig. 6b). Our 16M-sequence models are 8× short of that, so a negative here is weaker evidence against the paper than a negative at its scale would be.
+- Thinking longer at noise 0 behaves as in distribution: the loop is best at the trained step count (Q3 fixed-point analysis). The Dyck noise-0 exception (k = 17, −0.003 nats on 10.8K tokens) is below the pre-registered 0.02-nat threshold. With one seed, we cannot say whether it is real.
+- The paper's OOD gains come from models trained with batch 128 for 1M steps, and the paper reports that thinking gains grow with training (Fig. 6b). Our 16M-sequence models are 8× short of that, so a negative here is weaker evidence against the paper than a negative at its scale would be. The paper reports up to 29% in Fig. 6a. On Dyck, Table 2 gives 7.19% for thinking longer alone and 18.7% for thinking longer combined with self-verification; we did not measure the combination. Our closest analogue to the 7.19% is the noise-3 Dyck gain of 6.0% over noise-3 k = 3. That gain does not beat noise-free k = 3 (§2.3), and the paper's baseline for its percentages is not stated.
 
 > [!warning] Limitations
 > - **One seed, one checkpoint pair.** No variance estimate.
