@@ -94,6 +94,24 @@ The last column is the best noise-3 CE at any k > 3, minus the noise-0 CE at k =
 - Thinking longer (best k > 3, noise 3): Spearman = **+0.70**. This matches the paper's direction, but per §2.3 it measures recovery from the noise's own cost, not a gain over the default inference.
 - The plot and `collect_ood.py` use noise 3 for RQ2 because that is where any gain appears. At noise 0, the RQ2 rows of [result.md](result.md) give Spearman = +0.50 (by hand; −3.2, −2.6, −3.5, −3.0, +0.3%): the only non-negative value is Dyck's +0.3%.
 
+### 2.5 Mean OOD perplexity vs forward passes (Fig. 6a analogue)
+
+![Mean OOD perplexity vs forward passes](figures/fig6a_ood_thinking.png)
+
+y is the mean over the four OOD sets of each set's ppl = exp(mean token CE). The paper labels its axis "Perplexity Increase" without a formula; an offset from in-distribution ppl would shift each line but not change its shape. Mapping to the paper's x-axis, which is our inference because the paper does not state it:
+- **No Thinking** = k = 2 and **Thinking Longer** = k = 3, because S2 trains with 2–3 steps. Both points come from Q3 Part A.
+- **Self-Verification** = lowest-energy pick among N = 2, 5, 10 candidates of 3 steps each, so 6, 15 and 30 passes. These are recomputed from the Q2 σ = 3 arrays by `ood/plot_fig6a.py`, which also prints the per-set table.
+- Each pass is one energy forward plus its gradient. T++ uses one pass per token and is drawn flat.
+
+| Mean ppl | T++ | k = 2 | k = 3 | BoN-2 | BoN-5 | BoN-10 |
+|---|---|---|---|---|---|---|
+| noise 3 | 67.6 | 100.8 | 91.1 | 93.7 | 99.7 | 105.5 |
+| noise 0 | — | 101.7 | 84.5 | — | — | — |
+
+- **Thinking longer reproduces the paper's first drop.** Going from k = 2 to k = 3 lowers mean ppl by 9.6% at noise 3 and by 16.9% at noise 0. The paper's drop is about 20% (44.8 → 35.9, read off the plot).
+- **Self-verification reverses the paper's second drop.** BoN raises mean ppl as N grows (91.1 → 105.5), where the paper's falls (35.9 → 31.8). This is the RQ1 result (§2.2) seen on the paper's axis.
+- **EBT never reaches T++.** Its best point (84.5, k = 3 at noise 0) is still 25% above T++ (67.6). In the paper, EBT ends below T++.
+
 ## 3. Verdicts on the pre-registered claims
 
 | Claim | Threshold | Result | Verdict |
@@ -127,6 +145,7 @@ PYTHONPATH=$PWD/../..:$PWD/../thinking_study/common $PY ood/prepare_data.py --ou
 GPU_ID=6 DATASETS="gsm8k bigbench_dyck_languages" bash ood/run_ood.sh            # ~16 min
 GPU_ID=7 DATASETS="squad bigbench_elementary_math_qa" bash ood/run_ood.sh        # ~29 min
 $PY ood/collect_ood.py                                                        # report/result.md, figures/ood_shift.png
+$PY ood/plot_fig6a.py                                                         # figures/fig6a_ood_thinking.png
 P=s2_b64_16m_step250000; $PY ../thinking_study/q2_verifier_quality/plot_q2.py --results results/ood/q2_verifier_quality \
   --out ood/report/figures/q2_bon_curves_ood.png --grid ${P}_{gsm8k,squad,bigbench_elementary_math_qa,bigbench_dyck_languages}_noise3 \
   --titles "GSM8K (shift 1.37)" "SQuAD (shift 1.62)" "BB Elementary Math QA (shift 2.78)" "BB Dyck Languages (shift 3.20)" \
