@@ -92,8 +92,17 @@ def analyze(run_dir: Path) -> dict:
     cfg = json.loads((run_dir / "config.json").read_text())
     m = {"config": cfg}
     for noise in cfg["noises"]:
-        m[f"part_a_noise{noise:g}"] = part_a_metrics(np.load(run_dir / f"part_a_noise{noise:g}.npz"), cfg["n_train_steps"])
-    m["part_b"] = part_b_metrics(np.load(run_dir / "part_b.npz"))
+        a = np.load(run_dir / f"part_a_noise{noise:g}.npz")
+        m[f"part_a_noise{noise:g}"] = part_a_metrics(a, cfg["n_train_steps"])
+        if "answer" in a.files:  # OOD runs: CE after k steps on answer tokens only
+            ans = a["answer"].astype(bool)
+            ao = {"n_tokens": int(ans.sum())}
+            if ans.any():
+                ce_after = -np.concatenate([a["logp"][1:, ans], a["logp_final"][None, ans]], 0)
+                ao["ce_after_k_steps"] = {k: float(ce_after[k - 1].mean()) for k in range(1, ce_after.shape[0] + 1)}
+            m[f"part_a_noise{noise:g}"]["answer_only"] = ao
+    if (run_dir / "part_b.npz").exists():
+        m["part_b"] = part_b_metrics(np.load(run_dir / "part_b.npz"))
     return m
 
 
