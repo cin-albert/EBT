@@ -87,6 +87,29 @@ def batches(ds, indices: list[int], batch_size: int):
         yield collate_fixed([ds[i] for i in indices[start : start + batch_size]])
 
 
+def eval_dataset(data: str, hparams: dict):
+    """RedPajama validation ("rp_val") or one of the paper's OOD sets (ood_data.OOD_SETS)."""
+    if data == "rp_val":
+        return validation_split(hparams)
+    from ood_data import OOD_SETS, OODDataset, ood_texts
+    if data not in OOD_SETS:
+        raise ValueError(f"unknown eval data {data!r}; expected rp_val or one of {OOD_SETS}")
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(hparams["tokenizer"], clean_up_tokenization_spaces=False)
+    return OODDataset(ood_texts(data), tok)
+
+
+def answer_masks(ds, indices: list[int], batch_size: int):
+    """Per batch of `batches`, (B, SEQ_LEN) bool: target j is in the answer iff j + 1 >= n_prompt."""
+    for start in range(0, len(indices), batch_size):
+        items = [ds[i] for i in indices[start : start + batch_size]]
+        m = torch.zeros(len(items), SEQ_LEN, dtype=torch.bool)
+        for row, item in enumerate(items):
+            if "n_prompt" in item:
+                m[row, max(item["n_prompt"] - 1, 0):] = True
+        yield m
+
+
 def landscape_index(model, t: int) -> int:
     return min(t, model.hparams.mcmc_num_steps - 1)
 
