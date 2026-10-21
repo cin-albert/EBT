@@ -47,3 +47,12 @@ def test_eval_dataset_rp_val_is_the_validation_split(monkeypatch):
 def test_eval_dataset_rejects_unknown_names():
     with pytest.raises(ValueError):
         harness.eval_dataset("mmlu", {"tokenizer": "EleutherAI/gpt-neox-20b"})
+
+
+def test_rows_are_formatted_by_the_repo_loaders_pretrain_format():
+    from data.nlp.bigbench_dataloader import BigBenchDataset
+    from data.nlp.gsm8k_dataloader import GSM8KDataset
+
+    assert ood_data.loader_texts(GSM8KDataset, [{"question": "q?", "answer": "42"}]) == ["Question: q?\nAnswer: 42"]
+    rows = [{"inputs": "Close the brackets: ( [ Answer:", "targets": ["] )"]}]
+    assert ood_data.loader_texts(BigBenchDataset, rows) == ["Question: Close the brackets: ( [\nAnswer: ] )"]

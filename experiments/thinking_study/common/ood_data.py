@@ -14,18 +14,37 @@ OOD_SETS = ("gsm8k", "squad", "bigbench_elementary_math_qa", "bigbench_dyck_lang
 ANSWER_SEP = "\nAnswer: "
 
 
-def ood_texts(name: str) -> list[str]:
-    from data.nlp.bigbench_dataloader import BigBenchDataset
-    from data.nlp.gsm8k_dataloader import GSM8KDataset
-    from data.nlp.squad_dataloader import SQuADDataset
+PARQUET = {  # name -> (HF dataset repo, pinned revision, parquet path); the repo loaders' splits
+    "gsm8k": ("openai/gsm8k", "740312add88f781978c0658806c59bc2815b9866", "main/test-00000-of-00001.parquet"),
+    "squad": ("rajpurkar/squad_v2", "3ffb306f725f7d2ce8394bc1873b24868140c412", "squad_v2/validation-00000-of-00001.parquet"),
+    "bigbench_elementary_math_qa": ("tasksource/bigbench", "b8ee34693560a13a9feac6aa5540449e18b7eddb",
+                                    "elementary_math_qa/validation-00000-of-00001.parquet"),
+    "bigbench_dyck_languages": ("tasksource/bigbench", "b8ee34693560a13a9feac6aa5540449e18b7eddb",
+                                "dyck_languages/validation-00000-of-00001.parquet"),
+}
 
-    hp = Namespace(dataset_dir="", execution_mode="pretrain")
-    make = {"gsm8k": lambda: GSM8KDataset(hp, "test"),
-            "squad": lambda: SQuADDataset(hp, "validation"),
-            "bigbench_elementary_math_qa": lambda: BigBenchDataset(hp, "validation", "elementary_math_qa"),
-            "bigbench_dyck_languages": lambda: BigBenchDataset(hp, "validation", "dyck_languages")}
-    ds = make[name]()
-    return [ds[i] for i in range(len(ds))]
+
+def loader_texts(loader_cls, rows) -> list[str]:
+    """Format rows with a repo loader's own `pretrain` __getitem__, skipping its __init__ (Hub download)."""
+    ds = loader_cls.__new__(loader_cls)
+    ds.hparams, ds.dataset = Namespace(execution_mode="pretrain"), rows
+    return [ds[i] for i in range(len(rows))]
+
+
+def ood_texts(name: str) -> list[str]:
+    """Texts of one OOD set. The loaders' own __init__ goes through the Hub module path, whose metadata
+    datasets 3.0.0 can no longer parse (feature type "List"), so the parquet files are read directly."""
+    from datasets import load_dataset
+
+    from data.nlp import bigbench_dataloader, gsm8k_dataloader, squad_dataloader
+
+    repo, rev, path = PARQUET[name]
+    rows = load_dataset("parquet", data_files=f"hf://datasets/{repo}@{rev}/{path}", split="train")
+    if name == "squad":
+        rows = rows.filter(squad_dataloader.filter)  # answerable questions only, as SQuADDataset does
+    cls = {"gsm8k": gsm8k_dataloader.GSM8KDataset, "squad": squad_dataloader.SQuADDataset}.get(
+        name, bigbench_dataloader.BigBenchDataset)
+    return loader_texts(cls, rows)
 
 
 def encode(text: str, tokenizer) -> dict:
