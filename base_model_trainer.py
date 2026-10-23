@@ -15,7 +15,7 @@ from data.vid.ucf_dataloader import *
 from data.vid.kinetics_dataloader import *
 from data.img.imagenet_dataloader import *
 from data.fixed_val_split import fixed_val_split
-from data.resume_order import continue_epoch_order
+from data.resume_order import continue_epoch_order, resume_position
 from data.img.coco_tiny_dataset import COCOTinyDataset
 from data.img.coco_medium_dataset import COCOMediumDataset
 from data.vid.aggregate_dataloader import *
@@ -482,8 +482,10 @@ class ModelTrainer(L.LightningModule):
                     self.train_ds, self.val_ds = random_split(self.full_ds, [train_samples, valid_samples])
                 if self.hparams.get("resume_data_offset_steps"):  # skip samples the interrupted run already trained on
                     world = self.trainer.world_size
-                    offset = self.hparams.resume_data_offset_steps * self.hparams.batch_size_per_device * self.hparams.accumulate_grad_batches * world
-                    self.train_ds = continue_epoch_order(self.train_ds, offset, int(os.environ.get("PL_GLOBAL_SEED", 0)), world)
+                    epoch, offset = resume_position(self.hparams.resume_data_offset_steps, len(self.train_ds), self.hparams.batch_size_per_device * self.hparams.accumulate_grad_batches, world)
+                    # Lightning 2.4 builds the first epoch after a mid-epoch restart while the sampler is still at epoch 0
+                    # (pinned by tests/test_val_cadence.py); later epochs see every document once, in a different order
+                    self.train_ds = continue_epoch_order(self.train_ds, offset, int(os.environ.get("PL_GLOBAL_SEED", 0)), world, epoch, sampler_epoch=0)
             elif self.hparams.dataset_name == "aggregate":
                 self.create_full_ds()
                 self.train_ds, self.val_ds = self.full_ds.train_val_split(val_split_pct = self.hparams.validation_split_pct)

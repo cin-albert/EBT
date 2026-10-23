@@ -28,3 +28,7 @@ def write_shard(root, tag, texts):
         for text in texts:
             f.write(json.dumps({"raw_content": text}) + "\n")
     return path
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "gpu: needs a CUDA GPU (runs on GPU 0 only)")
