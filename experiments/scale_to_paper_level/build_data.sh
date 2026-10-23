@@ -8,7 +8,7 @@ check_disk
 MODE=${1:?usage: build_data.sh smoke|full}
 case "$MODE" in
   smoke) OUT="$WS/data/smoke"; NUM_DOCS=20000; WORKERS=8 ;;
-  full) OUT="$DATA_DIR"; NUM_DOCS=80000000; WORKERS=32 ;;  # capacity above any plausible count; stops when tags run out
+  full) OUT="$DATA_DIR"; NUM_DOCS=100000000; WORKERS=32 ;;  # capacity above the ~82M extrapolated from the first 184 shards; stops when tags run out
   *) echo "unknown mode $MODE" >&2; exit 1 ;;
 esac
 cd "$REPO"
@@ -35,5 +35,6 @@ json.dump(stats, open(sys.argv[2], "w"), indent=2)
 print(json.dumps({k: v for k, v in stats.items() if k != "tags_missing"}, indent=2))
 assert missing <= 84, f"{missing} shards missing (> 1% of 8,400)"
 assert n >= 50_000_000, f"only {n:,} documents built"
+assert n < meta["capacity"], f"hit capacity {meta['capacity']:,}: shards were skipped, raise NUM_DOCS"
 print("acceptance: OK")
 EOF
