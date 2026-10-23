@@ -1,4 +1,4 @@
-"""Energy-landscape figures from saved Q2/Q3 arrays (charts 2.1-2.6 of ENERGY_LANDSCAPE_VISUALIZATIONS.md).
+"""Energy-landscape figures from saved Q2/Q3 arrays (charts 2.1-2.8 of ENERGY_LANDSCAPE_VISUALIZATIONS.md).
 
 Offline only. Charts 2.2B and 2.3C need a Part B re-run and are not drawn here.
 
@@ -285,11 +285,131 @@ def chart_energy_entropy():
     save(fig, "2_5_energy_entropy.png")
 
 
+TV_CONVERGED, CYCLE_RATIO = 0.01, 0.1  # same thresholds as analyze_q3_extra.py
+GROUPS = [("converged", C_S1, "-"), ("2-cycle", C_S2, "-"), ("other", C_S2N, "--")]
+# models drawn in chart 2.7 per set: scale16m shows only the 250k checkpoint (its 105k reference has its own figure)
+ENERGY_STEP_MODELS = {"thinking": ["S1", "S2"], "scale16m": ["S2 250k/b64"]}
+SET_NAME = "thinking"
+
+
+def token_groups(a):
+    """Per-token label at the last state: 0 converged, 1 period-2 cycle, 2 other (criteria of report §3.4)."""
+    tv, lp = a["tv_next"], a["logp"]
+    not_conv = tv[-2] >= TV_CONVERGED
+    cyc = not_conv & (np.abs(lp[-1] - lp[-3]) < CYCLE_RATIO * np.abs(lp[-1] - lp[-2]))
+    return np.where(~not_conv, 0, np.where(cyc, 1, 2))
+
+
+def chart_energy_steps():
+    """2.7: per-token energy along the inference loop. Rows: ΔE vs the trained state, share of steps that lower E,
+    example trajectories. E_t = E(p_t) is the energy of the state *before* update t; E of the returned p_32 is not saved."""
+    cols = []
+    for name in ENERGY_STEP_MODELS[SET_NAME]:
+        mod = MODELS[name]
+        cfg = json.loads((mod.q3 / "config.json").read_text())
+        for noise in (0, 3):
+            if (mod.q3 / f"part_a_noise{noise}.npz").exists():
+                cols.append((f"{name}, noise {noise}", mod, noise, cfg["mcmc_num_steps"]))
+    rng = np.random.default_rng(0)
+    fig, axes = plt.subplots(3, len(cols), figsize=(4 * len(cols), 8.5), sharex=True, squeeze=False)
+    for j, (label, mod, noise, n_landscapes) in enumerate(cols):
+        a = load_a(mod, noise)
+        e = a["energy"]  # (32 states, tokens)
+        t = np.arange(e.shape[0])
+        t_ref = mod.tr + 1  # state after the trained number of updates
+        first = n_landscapes  # states t < n_landscapes - 1 use earlier landscapes; t = 0 is never comparable for S1
+        valid = t >= (1 if n_landscapes > 1 else 0)  # rows C: drop t = 0 only where it is on another landscape
+        valid_a = t >= 1  # row A: t = 0 is the initial noise (ΔE ≈ +5 for S2) and would flatten the rest
+        color = mod.color if noise == 0 else C_S2N
+        # A: ΔE relative to the trained state, per token
+        ax = axes[0, j]
+        band(ax, t[valid_a], (e - e[t_ref])[valid_a], color, label)
+        ax.axhline(0, color=INK, lw=0.8)
+        ax.set_title(label)
+        note = "t = 0 (initial noise) omitted"
+        if n_landscapes > 1:
+            note += "\nand on another landscape (step-0 time embedding)"
+        ax.text(0.98, 0.95, note, transform=ax.transAxes, ha="right", va="top", fontsize=7, color=MUTED)
+        # B: share of tokens whose energy drops at this step
+        ax = axes[1, j]
+        down = (np.diff(e, axis=0) < 0).mean(1)
+        tb = t[:-1]
+        keep = tb >= (first - 1 if n_landscapes > 1 else 0)  # skip the step that crosses a landscape switch
+        ax.plot(tb[keep], down[keep], color=color, marker="o", ms=3)
+        ax.axhline(0.5, color=MUTED, lw=0.8, ls=":")
+        ax.set_ylim(0, 1.02)
+        # C: example trajectories by convergence group
+        ax = axes[2, j]
+        grp = token_groups(a)
+        for g, (gname, c, ls) in enumerate(GROUPS):
+            idx = np.flatnonzero(grp == g)
+            if idx.size == 0:
+                continue
+            pick = rng.choice(idx, min(10, idx.size), replace=False)
+            for k, i in enumerate(pick):
+                ax.plot(t[valid], e[valid, i], color=c, ls=ls, lw=1, alpha=0.8,
+                        label=f"{gname} ({(grp == g).mean():.0%})" if k == 0 else None)
+        ax.set_xlabel("state index t")
+        ax.legend(fontsize=7, loc="upper right", frameon=True, framealpha=0.9, edgecolor="none")
+        if noise > 0:
+            ax.text(0.98, 0.02, "groups use the noise-0 criteria; with σ > 0 almost no token settles",
+                    transform=ax.transAxes, ha="right", va="bottom", fontsize=6.5, color=MUTED)
+        for i in range(3):
+            mark_trained(axes[i, j], t_ref, label=(i == 0))
+    axes[0, 0].set_ylabel("E_t − E_trained, per token\n(median, p10–p90)")
+    axes[1, 0].set_ylabel("share of tokens with E_{t+1} < E_t")
+    axes[2, 0].set_ylabel("E_t, 10 random tokens per group")
+    fig.suptitle(title("2.7  Energy along the inference loop",
+                       "2.7  Energy along the inference loop: E stops decreasing after the trained step.\nPer step, about "
+                       "half the tokens go up (S1, S2 σ=3) or E alternates odd/even (S2 σ=0); 2-cycle tokens oscillate"),
+                 fontsize=10)
+    save(fig, "2_7_energy_by_step.png")
+
+
+def chart_energy_minmax():
+    """2.8: per-token min-max scaled energy over states t >= 1, averaged over tokens.
+    Shape only: magnitudes are removed; read it together with chart 2.7 for raw values."""
+    cols = []
+    for name in ENERGY_STEP_MODELS[SET_NAME]:
+        mod = MODELS[name]
+        for noise in (0, 3):
+            if (mod.q3 / f"part_a_noise{noise}.npz").exists():
+                cols.append((f"{name}, noise {noise}", mod, noise))
+    fig, axes = plt.subplots(1, len(cols), figsize=(4 * len(cols), 3.6), sharey=True, squeeze=False)
+    for ax, (label, mod, noise) in zip(axes[0], cols):
+        e = load_a(mod, noise)["energy"][1:]  # t >= 1: t = 0 is the initial noise (and another landscape for S1)
+        t = np.arange(1, e.shape[0] + 1)
+        lo, rng = e.min(0), e.max(0) - e.min(0)
+        keep = rng > 1e-6 * np.abs(e).mean(0)  # drop tokens that never move (division by ~0)
+        z = (e[:, keep] - lo[keep]) / rng[keep]
+        mean = z.mean(1)
+        ci = 1.96 * z.std(1) / np.sqrt(z.shape[1])
+        q25, q75 = np.percentile(z, [25, 75], axis=1)
+        color = mod.color if noise == 0 else C_S2N
+        ax.fill_between(t, q25, q75, color=color, alpha=0.12, lw=0, label="IQR over tokens")
+        ax.fill_between(t, mean - ci, mean + ci, color=color, alpha=0.35, lw=0)
+        ax.plot(t, mean, color=color, marker="o", ms=3, label="mean (95% CI)")
+        t_ref = mod.tr + 1
+        ax.axvline(t_ref, color=MUTED, lw=1, ls=":")
+        ax.text(t_ref, 1.02, " trained", color=MUTED, fontsize=7, va="bottom")
+        ax.set_title(label)
+        ax.set_xlabel("state index t")
+        ax.set_ylim(-0.02, 1.08)
+    axes[0, 0].set_ylabel("Energy (min-max scaled)")
+    axes[0, 0].legend(fontsize=7, loc="upper right")
+    fig.suptitle(title("2.8  Energy along the loop, min–max scaled per token (shape only, magnitudes removed)",
+                       "2.8  Energy along the loop, min–max scaled per token: S2 reaches its minimum after one update, "
+                       "then rises and alternates;\nS1 drifts down after its trained step, but its raw range (α·ΔE ≈ 0.23 nats) is ~12× smaller than S2's"),
+                 fontsize=10)
+    save(fig, "2_8_energy_minmax.png")
+
+
 def main():
-    global MODELS, OUT, FINDINGS
+    global MODELS, OUT, FINDINGS, SET_NAME
     ap = argparse.ArgumentParser()
     ap.add_argument("--set", choices=SETS, default="thinking")
-    MODELS, OUT, FINDINGS = SETS[ap.parse_args().set]
+    SET_NAME = ap.parse_args().set
+    MODELS, OUT, FINDINGS = SETS[SET_NAME]
     OUT.mkdir(parents=True, exist_ok=True)
     chart_thinking_longer()
     chart_slope()
@@ -298,6 +418,8 @@ def main():
     chart_spectrum()
     chart_line_slices()
     chart_energy_entropy()
+    chart_energy_steps()
+    chart_energy_minmax()
 
 
 if __name__ == "__main__":
