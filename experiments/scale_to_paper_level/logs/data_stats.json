@@ -1,0 +1,16 @@
+{
+  "num_docs": 66387864,
+  "ratio_to_paper_66M": 1.0059,
+  "num_tags_total": 8400,
+  "num_tags_used": 8400,
+  "num_tags_missing": 0,
+  "tags_missing": [],
+  "docs_per_language": {
+    "en": 49254023,
+    "fr": 4464210,
+    "es": 4733678,
+    "de": 5493220,
+    "it": 2442733
+  },
+  "num_short_docs_skipped": 20
+}
