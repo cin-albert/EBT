@@ -217,6 +217,9 @@ class RedPajamaSubsetDataset(Dataset):
             raise ValueError(f"{self.root} is inconsistent (meta num_docs={self.num_docs}, lengths={len(self.lengths)}, input_ids={rows}x{width}); rebuild it")
         self._input_ids = None  # opened lazily so every DataLoader worker maps the file itself
 
+    def __getstate__(self):  # spawn/forkserver workers get a pickled copy: let each open its own memmap
+        return {**self.__dict__, "_input_ids": None}
+
     def __len__(self):
         return self.num_docs
 

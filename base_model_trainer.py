@@ -562,14 +562,19 @@ class ModelTrainer(L.LightningModule):
             collate_fn = None
         return collate_fn
     
+    def worker_mp_context(self):
+        # fork (the default) copies locks held by other threads of a CUDA/NCCL/logger process, which can deadlock a worker
+        context = self.hparams.get("dataloader_mp_context")  # absent in older checkpoints' hparams
+        return context if context and self.hparams.num_workers > 0 else None
+
     def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=self.hparams.batch_size_per_device, num_workers=self.hparams.num_workers, persistent_workers=True, collate_fn = self.get_collate_fn(), pin_memory = True, drop_last = False, shuffle = not self.hparams.no_shuffle, prefetch_factor=self.hparams.prefetch_factor)
+        return DataLoader(self.train_ds, batch_size=self.hparams.batch_size_per_device, num_workers=self.hparams.num_workers, persistent_workers=True, multiprocessing_context=self.worker_mp_context(), collate_fn = self.get_collate_fn(), pin_memory = True, drop_last = False, shuffle = not self.hparams.no_shuffle, prefetch_factor=self.hparams.prefetch_factor)
 
     def val_dataloader(self):
-        return DataLoader(self.val_ds, batch_size=self.hparams.batch_size_per_device, num_workers=self.hparams.num_workers, persistent_workers=True, collate_fn = self.get_collate_fn(), pin_memory = True, drop_last = False, shuffle = False, prefetch_factor=self.hparams.prefetch_factor)
+        return DataLoader(self.val_ds, batch_size=self.hparams.batch_size_per_device, num_workers=self.hparams.num_workers, persistent_workers=True, multiprocessing_context=self.worker_mp_context(), collate_fn = self.get_collate_fn(), pin_memory = True, drop_last = False, shuffle = False, prefetch_factor=self.hparams.prefetch_factor)
 
     def test_dataloader(self):
-        return DataLoader(self.test_ds, batch_size=self.hparams.batch_size_per_device, num_workers=self.hparams.num_workers, persistent_workers=True, collate_fn = self.get_collate_fn(), pin_memory = True, drop_last = False, shuffle = False, prefetch_factor=self.hparams.prefetch_factor)
+        return DataLoader(self.test_ds, batch_size=self.hparams.batch_size_per_device, num_workers=self.hparams.num_workers, persistent_workers=True, multiprocessing_context=self.worker_mp_context(), collate_fn = self.get_collate_fn(), pin_memory = True, drop_last = False, shuffle = False, prefetch_factor=self.hparams.prefetch_factor)
 
     def log_metrics(self, metrics_dict, phase, log_torchmetrics = True):
         # first log torchmetrics if there are any

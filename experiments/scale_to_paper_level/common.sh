@@ -7,6 +7,7 @@ WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$WS/../.." && pwd)"
 PY="${PY:-/home/quangnx/miniconda3/envs/ebt312/bin/python}"
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export TOKENIZERS_PARALLELISM=false  # collate runs in forked DataLoader workers
 export TMPDIR="${TMPDIR_EBT:-/tmp/ebt_paper}"  # short path: AF_UNIX socket paths cap at 107 chars
 DATA_DIR="${DATA_DIR:-$WS/data/full}"
 ALLOWED_GPUS=(0 1 2 3)  # GPUs 4 and 5 belong to other users
@@ -40,7 +41,7 @@ require_gpus() {  # $1 = comma-separated GPU ids; exports CUDA_VISIBLE_DEVICES, 
     --dataset_name pajama_subset --dataset_dir "$DATA_DIR"
     --fixed_val_indices "$WS/val_indices_paper_33000.npy"
     --val_check_interval 50000 --check_val_every_n_epoch 0
-    --num_workers 12 --save_top_k_ckpts -1
+    --num_workers 12 --dataloader_mp_context forkserver --save_top_k_ckpts -1
     --wandb_project ebt_scale_paper
     --log_model_archi --log_gradients
     --set_matmul_precision medium

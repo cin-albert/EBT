@@ -182,3 +182,15 @@ def test_dataset_refuses_inconsistent_files(tmp_path, tokenizer):
     np.save(os.path.join(subset_dir(str(tmp_path), TOKENIZER_NAME, 17), "lengths.npy"), np.array([4], dtype=np.int16))
     with pytest.raises(ValueError, match="inconsistent"):
         RedPajamaSubsetDataset(_subset_hparams(tmp_path))
+
+
+def test_dataset_pickles_without_its_memmap(tmp_path, tokenizer):
+    # spawn/forkserver DataLoader workers receive the dataset pickled; the opened memmap must not travel with it
+    import pickle
+    from data.nlp.pajama_subset import RedPajamaSubsetDataset
+    _build_in_place(tmp_path, tokenizer, ["a short doc here", LONG_TEXT])
+    ds = RedPajamaSubsetDataset(_subset_hparams(tmp_path))
+    first = ds[0]
+    copy = pickle.loads(pickle.dumps(ds))
+    assert copy._input_ids is None
+    assert copy[0] == first

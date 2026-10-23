@@ -46,7 +46,7 @@ def _train(root, val, run_name, *extra):
             "--gradient_clip_val", "1.0", "--weight_decay", "0.01", "--min_lr_scale", "10", "--warm_up_steps", "10",
             "--max_scheduling_steps", str(STEPS), "--dataset_name", "pajama_subset", "--dataset_dir", str(root / "data"),
             "--fixed_val_indices", str(val), "--val_check_interval", "15", "--check_val_every_n_epoch", "0",
-            "--num_workers", "2", "--save_top_k_ckpts", "-1", "--log_every_n_steps", "1", "--no_wandb",
+            "--num_workers", "2", "--dataloader_mp_context", "forkserver", "--save_top_k_ckpts", "-1", "--log_every_n_steps", "1", "--no_wandb",
             "--set_matmul_precision", "medium", "--run_name", run_name, *extra]
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": "0"}  # GPUs 4-5 belong to other users
     subprocess.run(args, cwd=root, env=env, check=True, stdout=subprocess.DEVNULL)

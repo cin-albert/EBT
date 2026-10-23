@@ -1,6 +1,8 @@
 # !/usr/bin/env python
 # coding: utf-8
+import faulthandler
 import os
+import signal
 from argparse import ArgumentParser
 import time
 import pytorch_lightning as L
@@ -292,6 +294,7 @@ def clear_cache():
     
 
 if __name__ == '__main__':
+    faulthandler.register(signal.SIGUSR1, all_threads=True)  # `kill -USR1 <pid>` prints every thread's stack (hang diagnosis)
     parser = ArgumentParser()
 
     #SUPER IMPORTANT HPARAMS--always set these properly #############################################
@@ -592,6 +595,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--validation_split_pct", help="if training and validation set are being split - which percent is validation", type=float, default=0.1)
     parser.add_argument("--resume_data_offset_steps", help="with --resume_training_ckpt: global optimizer steps already trained (any epoch); the current epoch continues its original shuffled order after them (non-resumable dataloader)", type=int, default=0)
+    parser.add_argument("--dataloader_mp_context", help="start method of DataLoader workers: fork (default when empty), spawn or forkserver; forkserver avoids inheriting locks of the threaded trainer process", type=str, default="", choices=["", "fork", "spawn", "forkserver"])
     parser.add_argument("--fixed_val_indices", help="path to a .npy of validation indices into the full dataset; overrides validation_split_pct", type=str, default="")
     
     parser.add_argument("--test_split_pct", help="if training, validation, and test set are being split - which percent is test. by default this is not used", type=float, default=0)
