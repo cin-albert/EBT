@@ -31,3 +31,16 @@ def test_validation_split_falls_back_to_seeded_random_split(monkeypatch):
     a = harness.validation_split({"validation_split_pct": 0.1})
     b = harness.validation_split({"validation_split_pct": 0.1})
     assert len(a) == 10 and list(a.indices) == list(b.indices)
+
+
+def test_paper_run_keys_resolve(tmp_path, monkeypatch):
+    assert harness.PAPER_CKPTS == harness.REPO / "experiments/scale_to_paper_level/runs/logs/checkpoints"
+    for key, run in (("s2_paper", "s2-paper"), ("tpp_paper", "tpp-paper")):
+        root, pattern = harness.RUN_DIRS[key]
+        assert root == harness.PAPER_CKPTS
+        d = tmp_path / f"{run}_2026-11-01_00-00-00_"
+        d.mkdir()
+        ckpt = d / "epoch=epoch=1-step=step=1000000-valid_loss=valid_loss=3.5.ckpt"
+        ckpt.touch()
+        monkeypatch.setitem(harness.RUN_DIRS, key, (tmp_path, pattern))
+        assert harness.ckpt_path(key, 1000000) == ckpt

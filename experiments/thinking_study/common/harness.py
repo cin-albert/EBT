@@ -21,12 +21,15 @@ from torch.utils.data import Subset, random_split
 REPO = Path(__file__).resolve().parents[3]
 REPRO_CKPTS = REPO / "experiments/reproduce_xxs_scaling/runs/logs/checkpoints"
 SCALE_CKPTS = REPO / "experiments/scale_to_16m_sequences/runs/logs/checkpoints"
+PAPER_CKPTS = REPO / "experiments/scale_to_paper_level/runs/logs/checkpoints"
 RUN_DIRS = {  # key -> (checkpoint root, run-directory glob); trainer dirs are f"{run_name}_{timestamp}_"
     "tpp": (REPRO_CKPTS, "baseline-xxs-scaling-105k_2026-10-13_07-23-18_"),
     "s1": (REPRO_CKPTS, "ebt-xxs-scaling-105k_2026-10-13_09-09-28_"),
     "s2": (REPRO_CKPTS, "ebt-s2-xxs-scaling-105k_2026-10-14_05-20-41_"),
     "tpp_b64_16m": (SCALE_CKPTS, "tpp-b64-16m_20*"),
     "s2_b64_16m": (SCALE_CKPTS, "s2-b64-16m_20*"),
+    "tpp_paper": (PAPER_CKPTS, "tpp-paper_20*"),
+    "s2_paper": (PAPER_CKPTS, "s2-paper_20*"),
 }
 SPLIT_SEED = 33  # seed of the reproduction runs; DDP reset_seed re-seeds with it right before random_split
 PAD_ID = 0  # GPT-NeoX eos == pad; the training loss ignores this target id
