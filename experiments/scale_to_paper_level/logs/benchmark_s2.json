@@ -1,0 +1,13 @@
+{
+  "model": "s2",
+  "gpus": "0,1,2,3",
+  "steps_per_s": 2.562,
+  "peak_gpu_mem_mib": 65782,
+  "eta_h_paper": 108.44,
+  "extra_args": [
+    "--dataset_dir",
+    "/home/quangnx/workspace/ebt/code/EBT/experiments/scale_to_paper_level/data/smoke",
+    "--fixed_val_indices",
+    "/home/quangnx/workspace/ebt/code/EBT/experiments/scale_to_paper_level/data/smoke/val_indices_smoke_1000.npy"
+  ]
+}

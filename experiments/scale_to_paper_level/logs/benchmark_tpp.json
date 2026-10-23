@@ -1,0 +1,8 @@
+{
+  "model": "tpp",
+  "gpus": "0,1,2,3",
+  "steps_per_s": 38.555,
+  "peak_gpu_mem_mib": 38753,
+  "eta_h_paper": 7.2,
+  "extra_args": []
+}
