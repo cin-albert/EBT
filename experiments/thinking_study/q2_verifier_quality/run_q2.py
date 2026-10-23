@@ -21,8 +21,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from harness import (RUN_DIRS, batches, energy, entropy, eval_subset_indices, load_model, run_mcmc, token_logprob,
-                     tpp_logits, train_eval_steps, validation_split)
+from harness import (RUN_DIRS, answer_masks, batches, energy, entropy, eval_dataset, eval_subset_indices, load_model,
+                     run_mcmc, token_logprob, tpp_logits, train_eval_steps)
 
 LOGP_FLOOR = float(np.log(1e-12))  # log-prob assigned to one-hot candidates that miss the target
 TEMPERATURES = (0.5, 1.0, 2.0)
@@ -48,21 +48,23 @@ def main():
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument("--data", default="rp_val", help="rp_val or an OOD set (ood_data.OOD_SETS)")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     model, hparams = load_model(args.model, args.step)
     tpp, _ = load_model(args.tpp, args.tpp_step)
-    val_ds = validation_split(hparams)
+    val_ds = eval_dataset(args.data, hparams)
     idx = eval_subset_indices(len(val_ds), args.n_seqs)
     n_steps = train_eval_steps(hparams)
     last_lsc = hparams["mcmc_num_steps"] - 1
     G = args.n_candidates
 
     rec = {k: [] for k in ["e_final", "e_last_logged", "logp", "top1", "entropy", "js", "off_e", "off_logp",
-                           "target", "tpp_logp"]}
+                           "target", "tpp_logp", "answer"]}
     t0 = time.time()
-    for b, (inputs, targets, mask) in enumerate(batches(val_ds, idx, args.batch_size)):
+    for b, ((inputs, targets, mask), amask) in enumerate(zip(batches(val_ds, idx, args.batch_size),
+                                                             answer_masks(val_ds, idx, args.batch_size))):
         inputs, targets, mask = inputs.cuda(), targets.cuda(), mask.cuda()
         ctx = model.embeddings(inputs).detach()
         cand = {k: [] for k in ["e_final", "e_last_logged", "logp", "top1", "entropy"]}
@@ -104,6 +106,7 @@ def main():
             rec["off_logp"].append(torch.stack(off_lp).cpu())
             rec["tpp_logp"].append(token_logprob(lt, targets)[mask].cpu())
             rec["target"].append(targets[mask].cpu())
+            rec["answer"].append(amask.cuda()[mask].cpu())
         if b % 8 == 0:
             print(f"batch {b + 1}/{(len(idx) + args.batch_size - 1) // args.batch_size} "
                   f"{time.time() - t0:.0f}s", flush=True)

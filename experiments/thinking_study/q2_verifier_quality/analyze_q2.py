@@ -91,6 +91,12 @@ def analyze(run_dir: Path) -> dict:
         "pairwise_consistency_gap_gt_0.1": pairwise_consistency(e7, ce7, MIN_CE_GAP),
         "bon_over_7_candidates_ce": float(np.take_along_axis(ce7, lowest[None], 0)[0].mean()),
     }
+    if "answer" in a.files:  # OOD runs: secondary metric on answer tokens only
+        ans = a["answer"].astype(bool)
+        m["answer_only"] = {"n_tokens": int(ans.sum())}
+        if ans.any():
+            m["answer_only"] |= {"single_sample_ce": float(ce[0, ans].mean()),
+                                 "best_of_n": best_of_n(a["e_final"][:, ans], ce[:, ans])}
     return m
 
 
