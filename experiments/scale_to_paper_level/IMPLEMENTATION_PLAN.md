@@ -309,6 +309,11 @@ Add one boundary test per claim C1–C7 in the same style, with the thresholds f
 | Task 7: evaluation | GPUs 0–3 | ≈ 0.5 day |
 | **Total** | | **≈ 7 days** |
 
+> [!note] Measured before launch (pre-registration frozen 2026-10-23)
+> - Build: **66,387,864 documents** (1.006 × the paper's 66M), 8,400/8,400 shards, 0 missing → 66,354,864 train / 33,000 val; one epoch = 518,398 steps at 4 × 32, so 1M steps ≈ 1.93 epochs.
+> - Benchmark on H100 80GB × 4 (GPUs 0–3), 4 × 32: **S2 2.56 steps/s** (≈ 108 h train-only for 1M steps, peak 65.8 GB/GPU, measured while the build used the CPUs); **T++ 38.6 steps/s** (≈ 7.2 h). Expected wall-clock: T++ ≈ 8 h, S2 ≈ 4.7 days including 20 validations.
+> - The claims C1–C7 and their thresholds in §0.2 are unchanged.
+
 > [!warning] Limitations known in advance
 > - One seed per model; no variance estimate.
 > - xxs only. If the paper's thinking model was "Small" (Table D.4), our models are ≈ 8× smaller in non-embedding parameters.
