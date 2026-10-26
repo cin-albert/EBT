@@ -5,7 +5,8 @@ intermediate quantity can be recorded. Semantics, matched to the repo code:
 
 - state z_t (B, S, V) is treated as logits; z_0 ~ N(0, 1) (`denoising_initial_condition random_noise`)
 - each step: p_t = softmax(z_t + Langevin noise); E_t = E(p_t); g_t = dE/dp_t  (gradient w.r.t. the
-  *probabilities*, not the logits); z_{t+1} = p_t - alpha * g_t
+  *probabilities*, not the logits); z_{t+1} = next_logits(rule, z_t + noise, p_t, g_t, alpha)
+  (model/nlp/mcmc_update.py), rule = hparams mcmc_update_rule; the default probs gives z_{t+1} = p_t - alpha * g_t
 - the prediction after the last step is softmax(z_N); the loss is CE(log_softmax(z_N), target)
 - landscape (time embedding) index of step t is min(t, mcmc_num_steps - 1)
 """
@@ -18,15 +19,20 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Subset, random_split
 
+from model.nlp.mcmc_update import next_logits
+
 REPO = Path(__file__).resolve().parents[3]
 REPRO_CKPTS = REPO / "experiments/reproduce_xxs_scaling/runs/logs/checkpoints"
 SCALE_CKPTS = REPO / "experiments/scale_to_16m_sequences/runs/logs/checkpoints"
+RULE_CKPTS = REPO / "experiments/scale_to_16m_sequences/mcmc_update_rule/runs/logs/checkpoints"
 RUN_DIRS = {  # key -> (checkpoint root, run-directory glob); trainer dirs are f"{run_name}_{timestamp}_"
     "tpp": (REPRO_CKPTS, "baseline-xxs-scaling-105k_2026-10-13_07-23-18_"),
     "s1": (REPRO_CKPTS, "ebt-xxs-scaling-105k_2026-10-13_09-09-28_"),
     "s2": (REPRO_CKPTS, "ebt-s2-xxs-scaling-105k_2026-10-14_05-20-41_"),
     "tpp_b64_16m": (SCALE_CKPTS, "tpp-b64-16m_20*"),
     "s2_b64_16m": (SCALE_CKPTS, "s2-b64-16m_20*"),
+    "s2_rule_logits": (RULE_CKPTS, "s2-rule-logits-105k_20*"),
+    "s2_rule_log_probs": (RULE_CKPTS, "s2-rule-log-probs-105k_20*"),
 }
 SPLIT_SEED = 33  # seed of the reproduction runs; DDP reset_seed re-seeds with it right before random_split
 PAD_ID = 0  # GPT-NeoX eos == pad; the training loss ignores this target id
@@ -142,6 +148,7 @@ def mcmc(model, input_ids: torch.Tensor, n_steps: int, noise_std: float, alpha: 
     torch seed this matches `EBT_NLP.forward(..., no_randomness=True)` for the same number of steps.
     """
     alpha = float(model.alpha.clamp(min=1e-4)) if alpha is None else alpha
+    rule = model.hparams.get("mcmc_update_rule", "probs")  # checkpoints from before the flag are probs
     with torch.no_grad():
         ctx_emb = model.embeddings(input_ids)
         z = model.corrupt_embeddings(ctx_emb) if z0 is None else z0
@@ -154,7 +161,7 @@ def mcmc(model, input_ids: torch.Tensor, n_steps: int, noise_std: float, alpha: 
             e = energy(model, ctx_emb, p, lsc)
             (g,) = torch.autograd.grad(e.sum(), p)
         yield Step(t, z, p.detach(), e.detach(), g, lsc)
-        z = p.detach() - alpha * g
+        z = next_logits(rule, noisy, p.detach(), g, alpha)
     return z.detach()
 
 
