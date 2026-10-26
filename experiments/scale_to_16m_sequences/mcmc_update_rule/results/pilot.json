@@ -1,0 +1,26 @@
+{
+ "/home/quangnx/workspace/ebt/refs/EBT/experiments/scale_to_16m_sequences/mcmc_update_rule/runs/logs/csv/pilot-logits-a5/version_0/metrics.csv": {
+  "finite": true,
+  "completed": true,
+  "gain": -4.840666770935059,
+  "baseline_gain": 1.7904919624328612,
+  "final_step_loss": 23.536258888244628,
+  "passed": false
+ },
+ "/home/quangnx/workspace/ebt/refs/EBT/experiments/scale_to_16m_sequences/mcmc_update_rule/runs/logs/csv/pilot-logits-a500/version_0/metrics.csv": {
+  "finite": true,
+  "completed": true,
+  "gain": -4.84385871887207,
+  "baseline_gain": 1.7904919624328612,
+  "final_step_loss": 23.55119743347168,
+  "passed": false
+ },
+ "/home/quangnx/workspace/ebt/refs/EBT/experiments/scale_to_16m_sequences/mcmc_update_rule/runs/logs/csv/pilot-log-probs-a5/version_0/metrics.csv": {
+  "finite": true,
+  "completed": true,
+  "gain": -1.8771278381347662,
+  "baseline_gain": 1.7904919624328612,
+  "final_step_loss": 15.34381103515625,
+  "passed": false
+ }
+}
