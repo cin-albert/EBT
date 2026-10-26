@@ -6,6 +6,9 @@ Fixed points of T are exactly the stationary points on the simplex of
     Phi(p) = alpha * E(p) - H(p) - 0.5 * ||p||^2
 (set the gradient of the Lagrangian to zero: alpha*g + log p + 1 - p = const). So inference is a
 fixed-point iteration on an entropy-regularized energy with temperature 1/alpha, not plain GD on E.
+Rules other than probs (hparams mcmc_update_rule, model/nlp/mcmc_update.py): gnorm and the line profile follow
+the rule; Phi is recorded but only meaningful for probs; the Jacobian spectral radius is computed only for probs
+(NaN otherwise).
 
 Part A (convergence, 256 seqs): N = 32 steps at noise 0 (and the training noise if > 0); per token, per
   step: E_t, Phi_t, ||g_p||, cos(g_t, g_{t-1}), TV(p_{t+1}, p_t), log p(target) of softmax(z_t),
@@ -32,6 +35,7 @@ import torch.nn.functional as F
 
 from harness import (RUN_DIRS, answer_masks, batches, energy, energy_from_embedding, entropy, eval_dataset,
                      eval_subset_indices, landscape_index, load_model, mcmc, token_logprob, train_eval_steps)
+from model.nlp.mcmc_update import descent_direction, next_logits
 
 LINE_S = np.linspace(0.0, 2.0, 17)
 
@@ -40,7 +44,7 @@ def phi(alpha, e, p):
     return alpha * e - entropy(p) - 0.5 * (p * p).sum(-1)
 
 
-def part_a(model, val_ds, idx, n_steps, noise, alpha, batch_size, seed):
+def part_a(model, val_ds, idx, n_steps, noise, alpha, batch_size, seed, rule="probs"):
     fields = ["energy", "phi", "gnorm", "cos_prev", "tv_next", "logp", "entropy"]
     rec = {k: [] for k in fields + ["logp_final", "answer"]}
     for b, ((inputs, targets, mask), amask) in enumerate(zip(batches(val_ds, idx, batch_size),
@@ -56,7 +60,7 @@ def part_a(model, val_ds, idx, n_steps, noise, alpha, batch_size, seed):
             except StopIteration as stop:
                 z_final = stop.value
                 break
-            g = s.grad - s.grad.mean(-1, keepdim=True)  # the component softmax ignores is removed
+            g = descent_direction(rule, s.p, s.grad)  # the rule's step direction, softmax-null component removed
             per["energy"].append(s.energy[mask])
             per["phi"].append(phi(alpha, s.energy, s.p)[mask])
             per["gnorm"].append(g.norm(dim=-1)[mask])
@@ -86,7 +90,7 @@ def capture_states(model, inputs, n_steps, alpha, wanted):
     return states
 
 
-def hessian_and_jacobian(model, ctx, s, alpha, mask, n_power=30):
+def hessian_and_jacobian(model, ctx, s, alpha, mask, rule="probs", n_power=30):
     """Per-token Hessian spectrum of E(e) and spectral radius of the Jacobian of T at state s."""
     W = model.vocab_to_embed.weight  # (D, V)
     lsc = s.landscape
@@ -102,17 +106,20 @@ def hessian_and_jacobian(model, ctx, s, alpha, mask, n_power=30):
             u = torch.zeros_like(e)
             u[..., k] = 1.0
             H[..., :, k] = hvp(u)
-        # Jacobian of T(p) = softmax(p - alpha * g_p(p)) applied to v: J_s(q) (v - alpha * W^T H_e W v)
-        q = F.softmax(s.p - alpha * s.grad, -1)
-        v = torch.randn_like(s.p)
-        v = v / v.norm(dim=-1, keepdim=True)
-        log_growth = torch.zeros(e.shape[:2], device=e.device)
-        for _ in range(n_power):
-            u = v - alpha * (hvp(v @ W.T) @ W)
-            jv = q * u - q * (q * u).sum(-1, keepdim=True)
-            n = jv.norm(dim=-1, keepdim=True).clamp_min(1e-30)
-            log_growth += n.squeeze(-1).log()
-            v = jv / n
+        if rule == "probs":
+            # Jacobian of T(p) = softmax(p - alpha * g_p(p)) applied to v: J_s(q) (v - alpha * W^T H_e W v)
+            q = F.softmax(s.p - alpha * s.grad, -1)
+            v = torch.randn_like(s.p)
+            v = v / v.norm(dim=-1, keepdim=True)
+            log_growth = torch.zeros(e.shape[:2], device=e.device)
+            for _ in range(n_power):
+                u = v - alpha * (hvp(v @ W.T) @ W)
+                jv = q * u - q * (q * u).sum(-1, keepdim=True)
+                n = jv.norm(dim=-1, keepdim=True).clamp_min(1e-30)
+                log_growth += n.squeeze(-1).log()
+                v = jv / n
+        else:  # T of the other rules is not derived here
+            log_growth = torch.full(e.shape[:2], float("nan"), device=e.device)
     del g_e, E  # free the double-backward graph before the eigendecomposition
     H = H.detach()
     Hs = 0.5 * (H + H.transpose(-1, -2))[mask]
@@ -128,12 +135,12 @@ def hessian_and_jacobian(model, ctx, s, alpha, mask, n_power=30):
     return eig.cpu(), rho.cpu(), g_e_tok, top1pct_share.cpu(), kurtosis.cpu()
 
 
-def line_profile(model, ctx, s, alpha, targets, mask):
+def line_profile(model, ctx, s, alpha, targets, mask, rule="probs"):
     nxt = landscape_index(model, s.t + 1)
     out = {"energy": [], "phi": [], "logp": []}
     with torch.no_grad():
         for sc in LINE_S:
-            z = s.p - sc * alpha * s.grad
+            z = next_logits(rule, s.z, s.p, s.grad, sc * alpha)  # Part B runs at noise 0, so s.z is the logits the step starts from
             q = F.softmax(z, -1)
             e = energy(model, ctx, q, nxt)
             out["energy"].append(e[mask])
@@ -148,7 +155,7 @@ def participation_ratio(x: torch.Tensor) -> float:
     return float(ev.sum() ** 2 / (ev ** 2).sum())
 
 
-def part_b(model, val_ds, idx, n_steps, n_train, alpha, batch_size, seed):
+def part_b(model, val_ds, idx, n_steps, n_train, alpha, batch_size, seed, rule="probs"):
     wanted = sorted({0, n_train - 1, n_steps - 1})
     res = {t: {k: [] for k in ["eig", "rho", "g_e", "top1pct", "kurt", "line_energy", "line_phi", "line_logp"]}
            for t in wanted}
@@ -158,8 +165,8 @@ def part_b(model, val_ds, idx, n_steps, n_train, alpha, batch_size, seed):
         states = capture_states(model, inputs, n_steps, alpha, wanted)
         ctx = model.embeddings(inputs).detach()
         for t, s in states.items():
-            eig, rho, g_e, top, kurt = hessian_and_jacobian(model, ctx, s, alpha, mask)
-            line = line_profile(model, ctx, s, alpha, targets, mask)
+            eig, rho, g_e, top, kurt = hessian_and_jacobian(model, ctx, s, alpha, mask, rule)
+            line = line_profile(model, ctx, s, alpha, targets, mask, rule)
             for k, v in [("eig", eig), ("rho", rho), ("g_e", g_e), ("top1pct", top), ("kurt", kurt),
                          ("line_energy", line["energy"]), ("line_phi", line["phi"]), ("line_logp", line["logp"])]:
                 res[t][k].append(v)
@@ -195,6 +202,7 @@ def main():
     val_ds = eval_dataset(args.data, hparams)
     idx = eval_subset_indices(len(val_ds), max(args.n_seqs_a, args.n_seqs_b))
     alpha = float(model.alpha.clamp(min=1e-4))
+    rule = model.hparams.get("mcmc_update_rule", "probs")
     n_train = train_eval_steps(hparams)
     t0 = time.time()
 
@@ -203,14 +211,14 @@ def main():
         if args.reuse_part_a and (args.out_dir / f"part_a_noise{noise:g}.npz").exists():
             continue
         print(f"Part A noise={noise}", flush=True)
-        arrays = part_a(model, val_ds, idx[: args.n_seqs_a], args.n_steps, noise, alpha, args.batch_size_a, args.seed)
+        arrays = part_a(model, val_ds, idx[: args.n_seqs_a], args.n_steps, noise, alpha, args.batch_size_a, args.seed, rule)
         np.savez_compressed(args.out_dir / f"part_a_noise{noise:g}.npz", **arrays)
     if not args.skip_part_b:
         print("Part B", flush=True)
-        arrays = part_b(model, val_ds, idx[: args.n_seqs_b], args.n_steps, n_train, alpha, args.batch_size_b, args.seed)
+        arrays = part_b(model, val_ds, idx[: args.n_seqs_b], args.n_steps, n_train, alpha, args.batch_size_b, args.seed, rule)
         np.savez_compressed(args.out_dir / "part_b.npz", **arrays, line_s=LINE_S)
 
-    config = vars(args) | {"out_dir": str(args.out_dir), "alpha": alpha, "n_train_steps": n_train,
+    config = vars(args) | {"out_dir": str(args.out_dir), "alpha": alpha, "mcmc_update_rule": rule, "n_train_steps": n_train,
                            "noises": noises, "mcmc_num_steps": hparams["mcmc_num_steps"],
                            "seconds": round(time.time() - t0, 1)}
     (args.out_dir / "config.json").write_text(json.dumps(config, indent=1))
