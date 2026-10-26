@@ -100,6 +100,8 @@ def main(args):
         assert args.embedding_dim != 0, "must define embedding dim for NLP models"
         if args.vocab_to_embed_uses_prob_dist:
             assert args.normalize_initial_condition, "if vocab_to_embed_uses_prob_dist is true must use normalize_initial_condition"
+        if args.mcmc_update_rule != "probs":
+            assert args.normalize_initial_condition and not args.normalize_initial_condition_only_first_step, "mcmc_update_rule logits/log_probs assume p = softmax(z) at every MCMC step"
     elif args.modality == "IMG":
         args.backbone_type = "vae" # always uses vae
         assert args.embedding_dim != 0, "must define embedding dim for IMG models"
@@ -366,6 +368,7 @@ if __name__ == '__main__':
     parser.add_argument("--mcmc_step_size", help="is size of optimization step, or alpha in the paper, kinda like LR, can be learned param", type=float, default=60.0)
     
     parser.add_argument("--mcmc_step_size_learnable", help="makes mcmc_step_size a learnable param", action="store_true", default = False)
+    parser.add_argument("--mcmc_update_rule", help="how an MCMC step forms the next logits from p = softmax(z) and dE/dp: probs (repo default, z' = p - a*dE/dp), logits (paper pseudocode, z' = z - a*dE/dz), log_probs (exponentiated gradient, z' = log p - a*dE/dp); see model/nlp/mcmc_update.py", type=str, default="probs", choices=["probs", "logits", "log_probs"])
     
     parser.add_argument("--mcmc_step_size_lr_multiplier", help="learning rate multiplier for mcmc step size, so to get lr of mcmc step size take lr multiply by this value", type=float, default=5000.0)
 

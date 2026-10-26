@@ -12,6 +12,7 @@ import random
 import os
 from model.model_utils import *
 from model.replay_buffer import CausalReplayBuffer
+from model.nlp.mcmc_update import next_logits
 
 
 class EBT_NLP(L.LightningModule):
@@ -112,6 +113,7 @@ class EBT_NLP(L.LightningModule):
             else:
                 mcmc_steps.append(step)
 
+        rule = self.hparams.get("mcmc_update_rule", "probs") # checkpoints from before the flag are probs
         with torch.set_grad_enabled(True):
             for i, mcmc_step in enumerate(mcmc_steps):
                 
@@ -123,6 +125,7 @@ class EBT_NLP(L.LightningModule):
                 if self.hparams.langevin_dynamics_noise != 0:
                     ld_noise = torch.randn_like(predicted_tokens.detach()) * langevin_dynamics_noise_std # langevin dynamics
                     predicted_tokens = predicted_tokens + ld_noise
+                noisy_logits = predicted_tokens # logits this step starts from; the logits and log_probs rules update from them
 
                 if self.hparams.normalize_initial_condition:
                     if self.hparams.normalize_initial_condition_only_first_step:
@@ -165,10 +168,10 @@ class EBT_NLP(L.LightningModule):
                     # with truncate_mcmc, non-final steps use create_graph=False which frees energy_preds's backward state; we detach here so the step-size modulation doesn't dangle into freed graph
                     energy_for_scaling = energy_preds.detach() if (self.hparams.truncate_mcmc and i != (len(mcmc_steps) - 1)) else energy_preds
                     exponentiated_energies = torch.exp(energy_for_scaling.reshape(batch_size, seq_length, 1) / self.hparams.scale_alpha_with_energy_temp)
-                    energy_scaled_alpha = alpha * exponentiated_energies
-                    predicted_tokens = predicted_tokens - energy_scaled_alpha * predicted_tokens_grad
+                    step_alpha = alpha * exponentiated_energies
                 else:
-                    predicted_tokens = predicted_tokens - alpha * predicted_tokens_grad # do this to tokens will be unnormalize prob dist convert to prob dist after
+                    step_alpha = alpha
+                predicted_tokens = next_logits(rule, noisy_logits, predicted_tokens, predicted_tokens_grad, step_alpha) # probs (default): p - alpha * dE/dp, an unnormalized prob dist converted to a prob dist after
 
                 if self.hparams.absolute_clamp != 0.0:
                     predicted_tokens = torch.clamp(predicted_tokens, min = -self.hparams.absolute_clamp, max = self.hparams.absolute_clamp)
@@ -448,6 +451,8 @@ class EBT_NLP(L.LightningModule):
         start_pos,
         learning
     ):
+        if self.hparams.get("mcmc_update_rule", "probs") != "probs":
+            raise NotImplementedError("advanced inference implements only the probs MCMC update rule")
         energies_list = []
         pred_states_list = []
         pred_states_list.append(initial_pred_tokens)
