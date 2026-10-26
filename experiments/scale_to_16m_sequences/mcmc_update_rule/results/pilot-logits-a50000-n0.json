@@ -1,0 +1,10 @@
+{
+ "runs/logs/csv/pilot-logits-a50000-n0/version_0/metrics.csv": {
+  "finite": true,
+  "completed": true,
+  "gain": 0.03695192337036133,
+  "baseline_gain": 1.7904919624328612,
+  "final_step_loss": 11.232153129577636,
+  "passed": false
+ }
+}
