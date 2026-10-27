@@ -69,7 +69,7 @@ def hessian_metrics(ev, rho, alpha: float) -> dict:
         "share_trace_negative": float((trace < 0).mean()),
         "share_abs_lmin_gt_lmax": float((-lmin > lmax).mean()),
         "rho": quantiles(rho),
-        "share_rho_above_1": float((rho > 1).mean()),
+        "share_rho_above_1": None if np.isnan(rho).all() else float((rho > 1).mean()),  # rho is NaN unless probs
     }
 
 

@@ -17,7 +17,11 @@ def _check(rule: str) -> None:
 
 
 def descent_direction(rule: str, p: torch.Tensor, grad_p: torch.Tensor) -> torch.Tensor:
-    """Direction the rule moves along, without the component softmax ignores; zero exactly at its fixed points."""
+    """Direction the rule moves along, without the component softmax ignores.
+
+    Zero at E-stationary points: the fixed points of `logits` and `log_probs`, not of `probs`
+    (whose fixed points are stationary for Phi = alpha*E - H - |p|^2/2).
+    """
     _check(rule)
     if rule == "logits":
         return p * (grad_p - (p * grad_p).sum(-1, keepdim=True))

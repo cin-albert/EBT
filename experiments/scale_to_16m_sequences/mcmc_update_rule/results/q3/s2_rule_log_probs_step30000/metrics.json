@@ -355,7 +355,7 @@
    },
    "update_map_jacobian": {
     "median_spectral_radius": NaN,
-    "share_contracting": 0.0,
+    "share_contracting": null,
     "quantiles": {
      "0.1": NaN,
      "0.5": NaN,
@@ -466,7 +466,7 @@
    },
    "update_map_jacobian": {
     "median_spectral_radius": NaN,
-    "share_contracting": 0.0,
+    "share_contracting": null,
     "quantiles": {
      "0.1": NaN,
      "0.5": NaN,
@@ -577,7 +577,7 @@
    },
    "update_map_jacobian": {
     "median_spectral_radius": NaN,
-    "share_contracting": 0.0,
+    "share_contracting": null,
     "quantiles": {
      "0.1": NaN,
      "0.5": NaN,

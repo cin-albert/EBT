@@ -12,6 +12,11 @@ from scipy.stats import spearmanr
 TV_CONVERGED = 0.01  # total-variation change between consecutive predictions counted as "converged"
 
 
+def share_or_none(mask, rho):
+    """Share of tokens where mask holds; None when rho is undefined (NaN for update rules other than probs)."""
+    return None if np.isnan(rho).all() else float(mask.mean())
+
+
 def first_below(x, thr):
     """Index of the first step with x < thr per token (len(x) if never)."""
     below = x < thr
@@ -70,7 +75,7 @@ def part_b_metrics(b):
                 "median_spectrum_quantiles": {q: float(np.median(np.quantile(eig, q, axis=1))) for q in (0.0, 0.1, 0.5, 0.9, 1.0)},
             },
             "update_map_jacobian": {"median_spectral_radius": float(np.median(b[f"t{t}_rho"])),
-                                    "share_contracting": float((b[f"t{t}_rho"] < 1).mean()),
+                                    "share_contracting": share_or_none(b[f"t{t}_rho"] < 1, b[f"t{t}_rho"]),
                                     "quantiles": {q: float(np.quantile(b[f"t{t}_rho"], q)) for q in (0.1, 0.5, 0.9)}},
             "gradient_geometry": {"median_top1pct_vocab_share_of_g2": float(np.median(b[f"t{t}_top1pct"])),
                                   "median_kurtosis": float(np.median(b[f"t{t}_kurt"])),

@@ -110,7 +110,7 @@
           "p50": NaN,
           "p99": NaN
         },
-        "share_rho_above_1": 0.0
+        "share_rho_above_1": null
       },
       "line": {
         "energy": {
@@ -194,7 +194,7 @@
           "p50": NaN,
           "p99": NaN
         },
-        "share_rho_above_1": 0.0
+        "share_rho_above_1": null
       },
       "line": {
         "energy": {
@@ -278,7 +278,7 @@
           "p50": NaN,
           "p99": NaN
         },
-        "share_rho_above_1": 0.0
+        "share_rho_above_1": null
       },
       "line": {
         "energy": {

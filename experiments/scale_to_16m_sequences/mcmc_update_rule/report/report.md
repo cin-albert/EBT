@@ -7,7 +7,7 @@ tags: [ebt, s2, mcmc, ablation, report]
 
 > [!summary] TL;DR
 > - **Neither alternative rule beats the repo's `probs` update at xxs scale.** `logits` (the paper's pseudocode) does not train: the MCMC loop never moves the prediction (gain ≤ 0.04 nats vs 1.79). `log_probs` (exponentiated gradient, noise 0) trains, but worse and **unstably**: valid loss 5.46 at its best (30k, baseline 4.40) and 18.0 at 105k (baseline 3.94), with recurring loss spikes from ~35k.
-> - Its energy loop behaves more like the paper describes: thinking past the trained 2–3 steps helps (best k = 5 at 30k), the lowest-energy candidate beats a random one at every N, and the descent direction shrinks more (‖d₃₁‖/‖d₂‖ 0.51 vs 0.94). These are measured on a much worse model, without Langevin noise, so they do not show that the rule would help a model of baseline quality.
+> - Its energy loop behaves more like the paper describes in two ways: thinking past the trained 2–3 steps helps a little (best k = 5 at 30k), and the lowest-energy candidate beats a random one at every N. Its smaller ‖d₃₁‖/‖d₂‖ (0.51 vs 0.94) holds by construction and a rule-neutral convergence measure shows no advantage. All of this is measured on a much worse model without Langevin noise, so it does not show that the rule would help a model of baseline quality.
 > - The baseline's Langevin noise (std 3) cannot be reused with rules that keep the logits: the noise accumulates and CE rises above a uniform guess. Both alternative rules were therefore run with noise 0, a deviation from the baseline.
 
 Spec: [[MCMC_UPDATE_RULE_ABLATION]]. Plan: [[IMPLEMENTATION_PLAN]].
@@ -68,7 +68,7 @@ Run: `s2-rule-log-probs-105k`, α = 5, noise 0, otherwise the baseline's flags. 
 - From ~35k, train loss spikes recur and grow: the mean train CE after the last step rises to 11.0 over 60k–65k, with a single-batch peak of 1,022 at ~66k. The run recovers to ~6.2 over 67k–70k, then spikes persist (mean train CE after the last step 9.4–24.5 per 5k bin over 70k–105k); the 105k checkpoint sits inside a spike (valid CE after the first step 107, after the last 18.0).
 - Gradient clipping almost never fires (logged clipping fraction 0.01% on average, 13% at most, at the 66k spike), and the logged energy gap grows with the spikes (mean 0.4 over 0–5k, 1.7 over 60k–65k, 3.2 over 100k–105k).
 - Likely mechanism (not verified): `log_probs` adds each step to the current log-probabilities with no reset, so once the energy gradient grows, α∇E can push the prediction to a confident wrong distribution. Under `probs` the next logits are $p - \alpha g$ with $p \in [0,1]$, which does not carry the previous step's scale. Confirming this needs ‖α∇E‖ and the entropy of $p$ around 60k–66k.
-- The pilot's "MCMC gain" is misleading here: over the last 1k logged steps before 70k it was 2.45 nats (baseline 2.48 at 105k), but only because the CE after the first step had exploded.
+- The pilot's "MCMC gain" is misleading here: over logged steps 69,000–69,999 it was 2.485 nats (baseline 2.482 over 104,000–104,999), but only because the CE after the first step had exploded.
 
 ### 3.2 Hypotheses
 
@@ -89,7 +89,7 @@ Q3 CE after k steps, noise 0:
 | k | 1 | 2 | 3 | 4 | 8 | 16 | 32 |
 |---|---|---|---|---|---|---|---|
 | `probs` baseline @105k | 6.28 | 4.14 | **3.94** | 4.08 | 4.05 | 4.04 | 4.04 |
-| `log_probs` @30k | 6.69 | 5.68 | 5.42 | **5.34** | 5.40 | 5.87 | 7.00 |
+| `log_probs` @30k | 6.69 | 5.68 | 5.42 | 5.34 | 5.40 | 5.87 | 7.00 |
 | `log_probs` @105k | 105.4 | 22.9 | 18.0 | 16.7 | **15.7** | 16.8 | 21.9 |
 
 (`log_probs` @30k reaches its minimum 5.317 at k = 5.)
@@ -99,18 +99,22 @@ Verdicts:
 - **H2 (best k > 3): holds, weakly.** Best k = 5 at 30k (CE 0.10 below k = 3) and 8 at 105k; the baseline's best is 3. Past k ≈ 8, CE rises again (to 7.0 at k = 32 for 30k), so longer thinking helps only a little beyond the trained count, then hurts.
 - **H3 (energy is a better verifier): holds in sign.** The lowest-energy candidate beats a random one at every N, and the margin grows with N; the baseline's energy pick is worse than random from N = 4. The effect is small at 30k: at N = 32 it recovers 0.057 of the 1.21-nat gap between random and oracle (verifier efficiency 0.047).
   - Candidate diversity differs by construction. At noise 0, `log_probs` candidates differ only through the random initial condition, which the rule keeps (mean JS between candidates 0.10). `probs` discards it, so the baseline needs noise 3 for diversity (0.028; 8.5·10⁻⁷ at noise 0).
-- **H4 (loop approaches a stationary point): holds.** The median ‖d₃₁‖/‖d₂‖ is 0.51 (30k) and 0.59 (105k) vs 0.94. But CE rises after k ≈ 5–8 while the direction keeps shrinking, so the stationary points it approaches are not low-CE points.
+- **H4 (loop approaches a stationary point): holds as measured, but the measure favours `log_probs` by construction.** The median ‖d₃₁‖/‖d₂‖ is 0.51 (30k) and 0.59 (105k) vs 0.94.
+  - $d$ is the centred $\nabla_p E$, which vanishes at E-stationary points: the fixed points of `log_probs`, but not of `probs`, whose fixed points are stationary for $\Phi$ (spec §1). A `probs` loop sitting exactly at its own fixed point would still score near 1, so 0.51 vs 0.94 compares the rules' targets as much as their convergence.
+  - A rule-neutral measure, the mean total-variation change between consecutive predictions (`tv_next`, Q3 Part A, noise 0), shows no better convergence for `log_probs`: at k = 31 it is 0.035 for the baseline, 0.037 at 30k (lowest 0.031 at k ≈ 16, then rising) and 0.108 at 105k. The baseline's change keeps falling up to k = 31.
+  - CE also rises after k ≈ 5–8 while $d$ keeps shrinking, so the E-stationary points the loop approaches are not low-CE points.
 
 Caveats:
 - One seed per run.
 - `log_probs` runs without Langevin noise; a `probs` run with noise 0 was not trained, so the rule and the noise level are confounded in every comparison.
 - H2–H4 are measured on a much worse model (5.46 vs ~4.0); verifier and landscape properties may change with quality.
+- Not done from spec §5.2: the training-curve plot (replaced by the tables in §3.1) and the optional OOD evaluation (its trigger, H1 or H2 holding, is met only by the weak H2 result on a model 1.5 nats worse than the baseline, so it was skipped).
 
 ## 4. Conclusion
 
 - The spec asked whether the update rule explains the gap between the paper's description and the code's behaviour (Φ-balance, best k = 3, energy failing as a verifier).
 - **`logits`** (the pseudocode rule) cannot be the explanation in the direction of "the paper's rule works better": with a fixed α it does not train at all. Its step is $p_i$ times the `probs` step, so no fixed α suits both the near-uniform start ($p_i \approx 1/V$) and a concentrated prediction; `log_probs` is exactly `logits` with that factor divided out.
-- **`log_probs`** (the rule whose fixed points are stationary points of $E$) shows the qualitative behaviour the paper describes and the baseline lacks: longer thinking helps a little, energy ranks candidates better than chance, and the loop moves closer to a stationary point. This is consistent with the `probs` rule's Φ-balance being part of why the baseline stops at k = 3 and why its energy fails as a verifier.
+- **`log_probs`** (the rule whose fixed points are stationary points of $E$) shows two behaviours the paper describes and the baseline lacks: longer thinking helps a little, and energy ranks candidates better than chance. Its loop moves closer to an E-stationary point, as the rule is designed to, but by a rule-neutral measure it does not settle better than the baseline (§3.2, H4). This is consistent with the `probs` rule's Φ-balance being part of why the baseline stops at k = 3 and why its energy fails as a verifier, but the noise confound (§3.2 caveats) prevents a firmer claim.
 - It does not reproduce the paper's quality: it trains to a worse loss and becomes unstable. At this scale and α, the repo's `probs` rule is the better choice for language modelling CE.
 - Untested next steps, in order of cost: a `probs` run with noise 0 (separates rule from noise); `log_probs` with a smaller α or a clamp on α∇E (tests the instability mechanism); learnable α for `logits`.
 
