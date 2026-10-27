@@ -1,0 +1,26 @@
+{
+ "model": "s2_rule_log_probs",
+ "tpp": "tpp",
+ "tpp_step": 105000,
+ "step": 30000,
+ "noise": 0.0,
+ "n_candidates": 32,
+ "n_seqs": 1024,
+ "batch_size": 16,
+ "seed": 0,
+ "out_dir": "/home/quangnx/workspace/ebt/refs/EBT/experiments/scale_to_16m_sequences/mcmc_update_rule/results/q2/s2_rule_log_probs_step30000_noise0",
+ "data": "rp_val",
+ "n_steps": 3,
+ "alpha": 5.0,
+ "landscape": 0,
+ "off_trajectory": [
+  "tpp_T0.5",
+  "tpp_T1.0",
+  "tpp_T2.0",
+  "onehot_target",
+  "onehot_tpp_argmax",
+  "uniform"
+ ],
+ "n_tokens": 228522,
+ "seconds": 279.2
+}

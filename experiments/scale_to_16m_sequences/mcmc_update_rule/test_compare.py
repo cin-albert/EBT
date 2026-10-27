@@ -4,10 +4,12 @@ import pandas as pd
 import compare
 
 
-def test_final_valid_loss_takes_the_last_logged_value(tmp_path):
+def test_valid_loss_at_takes_the_value_logged_just_before_the_checkpoint_step(tmp_path):
     path = tmp_path / "m.csv"
-    pd.DataFrame({"step": [1, 2, 3, 4], "valid_loss": [np.nan, 4.2, np.nan, 3.9]}).to_csv(path, index=False)
-    assert compare.final_valid_loss(path) == 3.9
+    pd.DataFrame({"step": [100, 14999, 20000, 29999, 104999],
+                  "valid_loss": [np.nan, 5.5, np.nan, 5.4, 18.0]}).to_csv(path, index=False)
+    assert compare.valid_loss_at(path, 30000) == 5.4
+    assert compare.valid_loss_at(path, 105000) == 18.0
 
 
 def test_best_k_and_gnorm_ratio_read_the_q3_fields():

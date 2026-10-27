@@ -1,0 +1,22 @@
+{
+ "model": "s2_rule_log_probs",
+ "step": 105000,
+ "n_steps": 32,
+ "n_seqs_a": 256,
+ "n_seqs_b": 32,
+ "batch_size_a": 16,
+ "batch_size_b": 4,
+ "seed": 0,
+ "out_dir": "/home/quangnx/workspace/ebt/refs/EBT/experiments/scale_to_16m_sequences/mcmc_update_rule/results/q3/s2_rule_log_probs_step105000",
+ "reuse_part_a": false,
+ "data": "rp_val",
+ "skip_part_b": false,
+ "alpha": 5.0,
+ "mcmc_update_rule": "log_probs",
+ "n_train_steps": 3,
+ "noises": [
+  0.0
+ ],
+ "mcmc_num_steps": 1,
+ "seconds": 516.5
+}
