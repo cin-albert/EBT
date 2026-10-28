@@ -157,6 +157,8 @@ Both setups pretrain once on RedPajamaV2 (xxs, batch 128 × 1M steps), take the 
 
 "Pretrain (validation)" for us is exp(validation CE) over all 33,000 validation documents at step 1M as logged in training (the 1,024-sequence eval subset gives 30.36 / 34.68). The paper's validation set is a different random sample of the same corpus.
 
+![Table 3: paper vs reproduction](figures/table3_vs_paper.png)
+
 - **Our T++ matches or beats the paper's T++.** It is within 1% on BB math (+0.7%) and lower on every other set: by 4–5% on validation and SQuAD and by 18–19% on GSM8K and Dyck. Our evaluation therefore produces numbers on the paper's scale, and a weaker T++ reference does not explain C7.
 - **Our S2 is worse than the paper's EBT on every set at σ = 3**, from +2.7% (GSM8K) and +1.5% in-distribution to +13% (Dyck) and +21% (BB math). At σ = 0 it is within 3% on GSM8K (−1.2%) and Dyck (+2.5%), but still +6.5% on SQuAD and +15% on BB math.
 - **The paper's Table 3 wins rest on both sides of the ratio.** On GSM8K and Dyck our S2 at σ = 0 is below the paper's T++ (42.8 vs 49.6; 128.4 vs 131.5) but above our own T++, because our T++ is 18–19% lower there. Neither the paper nor we measure seed variance, and Dyck has 200 items, so T++ differences of this size between independent runs cannot be ruled out. The win/loss count of C7 is therefore sensitive to the T++ reference run.
