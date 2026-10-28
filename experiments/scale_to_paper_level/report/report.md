@@ -9,7 +9,7 @@ tags: [ebt, scaling, thinking-study, verifier, ood, self-verification]
 > [!summary] TL;DR
 > - **The loss gap keeps shrinking but does not reach the paper.** At the paper's data scale (batch 128 × 1M steps = 128M sequences on the full RedPajama sample-100B, 66.4M documents), the S2 − T++ validation gap is **+0.132 nats**. It was +0.247 at 3.36M sequences and +0.179 at 16M. C1 is **Supported** (< 0.149), but the gap is about twice the paper's +0.064 and stays above the "matches paper" bar of 0.114.
 > - **The paper's thinking claims do not reproduce at the paper's scale.** C2–C7 are all **Not supported**. The k = 2 → 3 gain on OOD perplexity is 9.7% at σ = 3, just under the 10% threshold (15.0% at σ = 0; the paper shows ≈ 20%). Self-verification (lowest-energy pick among candidates) makes OOD perplexity worse, not better: 82.8 → 95.4 from k = 3 to BoN-10. It is net-harmful on Dyck at every one of the 20 checkpoints. T++ beats S2 on all 4 OOD sets (paper: S2 wins 3 of 4).
-> - **8× more data leaves the verifier where it was.** BoN-32 efficiency (−0.20) and pairwise consistency (0.626) equal the 3.36M and 16M values to two decimals. The energy still ranks candidates by sharpness (R² of ΔE on Δentropy 0.973; entropy alone selects as well as E). What did improve is S2's relative deficit to T++ out of distribution: the S2/T++ ppl ratio on BB Elementary Math QA fell from 1.50 to 1.09.
+> - **8× more data leaves the verifier where it was.** BoN-32 efficiency (−0.20) and pairwise consistency (0.626) are within 0.01 of the 3.36M and 16M values. The energy still ranks candidates by sharpness (R² of ΔE on Δentropy 0.973; entropy alone selects as well as E). What did improve is S2's relative deficit to T++ out of distribution: the S2/T++ ppl ratio on BB Elementary Math QA fell from 1.50 to 1.09.
 
 ## 1. Setup
 
@@ -100,6 +100,7 @@ Mean perplexity over the 4 OOD sets (S2 at σ = 3 unless noted):
   - At σ = 3 the drop is 9.7%, almost the same as at 16M (9.6%). At σ = 0 it is 15.0% (16.9% at 16M).
   - The paper shows ≈ 20% and does not state its σ.
   - The direction reproduces at every scale; the size does not reach the pre-registered 10% at σ = 3.
+  - The verdict also depends on the averaging convention. "Mean OOD ppl" is the arithmetic mean of per-set ppl (as in the OOD report), which Dyck dominates (ppl ≈ 150, but only 2.5% of OOD tokens). With a geometric mean (mean CE over sets) the drop is 10.65%, and token-weighted it is 12.2%; both pass 10%. The pre-registered convention stands; C3 is negative under all three (−15.3% / −12.5% / −9.0%).
 - **C3 (BoN-10 lowers it further by > 2%): Not supported, reversed.** BoN-10 is 15.3% *worse* than k = 3 (82.8 → 95.4), and perplexity rises monotonically with N, as at 16M.
 - More data lowered every S2 variant by ≈ 8–10% in perplexity, while the T++ mean rose (67.6 → 69.7; see §2.4). So the whole S2 curve moved toward T++, but its shape did not change.
 
@@ -132,7 +133,7 @@ Mean perplexity over the 4 OOD sets (S2 at σ = 3 unless noted):
 
 - **C6: Not supported.** Spearman(shift, Max-Thinking gain) = −0.50 over 5 points, the opposite sign to the paper's Fig. 7.
   - Where Max Thinking is positive, the gain comes from the k = 2 → 3 step, not from the selection. On every set, BoN-10 is worse than k = 3 alone.
-  - The two most shifted sets (BB math, Dyck) lose the most to selection.
+  - Selection costs most on Dyck, the most shifted set (BoN-10 vs k = 3: −23.6%), then GSM8K (−11.7%), BB math (−9.9%), SQuAD (−5.5%) and validation (−4.5%). The loss is not ordered by shift beyond Dyck.
 - **C7: Not supported.** S2 ppl is above T++ on all 4 OOD sets (paper: S2 lower on 3 of 4).
   - S2's relative deficit did shrink on every set, most on BB Elementary Math QA (1.50 → 1.09).
   - Part of that shrinkage comes from T++ getting worse on the BigBench sets: Dyck 92.3 → 108.0 and BB math 75.1 → 80.3, while T++ improved on GSM8K (48.7 → 40.4) and SQuAD (54.4 → 50.0).
@@ -156,7 +157,7 @@ Because C3–C6 failed, the plan's optional follow-up was run on the final S2 ch
 | AUROC energy / entropy → top-1 error | 0.628 / 0.806 | 0.670 / 0.815 | **0.589 / 0.819** |
 | Spearman(energy, CE) across tokens | 0.233 | 0.353 | **0.180** |
 | k = 2 → 3 CE, noise 0 (256 seqs) | 4.143 → 3.943 (−0.200) | 3.924 → 3.724 (−0.200) | **3.709 → 3.587 (−0.122)** |
-| k = 32 penalty vs k = 3, noise 0 | +0.097 | +0.093 | **+0.107** |
+| k = 32 penalty vs k = 3, noise 0 | +0.097 | +0.093 | **+0.106** |
 
 | Q3 Part B metric (t = 0 / 2 / 31) | 16M / b64 | **128M / b128** |
 |---|---|---|
@@ -165,12 +166,12 @@ Because C3–C6 failed, the plan's optional follow-up was run on the final S2 ch
 | Tokens locally convex | 0% / 0% / 0% | **0% / 0% / 0%** |
 | λ_max / median\|λ\| | 8.5 / 104 / 76 | **14.5 / 90 / 68** |
 | Participation ratio of ∇_eE (of 384) | 37.4 / 24.1 / 24.9 | **37.9 / 23.3 / 24.0** |
-| Line argmin s along the update at t = 2: CE / E / Φ | 1.625 / 2.0 / 0.875 | **1.25 / 2.0 / 1.0** |
+| Line argmin s along the update at t = 2: CE / E / Φ | 1.625 / 2.0 / 0.875 | **1.75 / 2.0 / 1.0** |
 | Median steps to converge (TV < 0.01, noise 0) | 7 | **9** |
 | Spearman(steps to converge, entropy) | 0.82 | **0.82** |
 | Tokens not converged / in a 2-cycle at t = 31 (noise 0) | 14.4% / 13.2% | **32.7% / 29.9%** |
 
-- **The verifier is unchanged across a 38× range of data.** The BoN curve, efficiency and consistency match the 3.36M and 16M values to the second decimal. The energy is still almost a linear function of entropy when ranking candidates of one token (R² 0.973). Selecting by entropy alone gives a BoN-32 CE within 0.006 nats of selecting by E, and both are worse than no selection.
+- **The verifier is unchanged across a 38× range of data.** The BoN curve, efficiency and consistency are within 0.01 of the 3.36M and 16M values. The energy is still almost a linear function of entropy when ranking candidates of one token (R² 0.973). Selecting by entropy alone gives a BoN-32 CE within 0.006 nats of selecting by E, and both are worse than no selection.
 - **As an across-token uncertainty signal, the energy got worse.** AUROC fell from 0.670 to 0.589 and Spearman(E, CE) from 0.353 to 0.180, which reverses the 3.36M → 16M improvement. Entropy stays at ≈ 0.82.
 - **The paper's k = 2 → 3 step is smaller in distribution** (−0.122 vs −0.200 nats). One reason is that k = 2 is already much better at 128M (3.709 vs 3.924 at 16M), but this set and its baseline differ from the earlier points, so treat the comparison as indicative only.
 - **The landscape findings hold at 128M:**
@@ -178,14 +179,14 @@ Because C3–C6 failed, the plan's optional follow-up was run on the final S2 ch
   - The loop contracts after the first steps.
   - The update is line-optimal for Φ (s = 1.0) rather than for E (s = 2.0, the edge of the grid).
   - Steps to converge still track entropy (0.82).
-- **What changed is the late loop:** about twice as many tokens end unconverged in a 2-cycle at t = 31 (29.9% vs 13.2%), and the k = 32 penalty grew slightly (+0.107). The trained 2–3-step regime is unaffected, but extrapolating past it is somewhat less stable than at 16M.
+- **What changed is the late loop:** about twice as many tokens end unconverged in a 2-cycle at t = 31 (29.9% vs 13.2%), and the k = 32 penalty grew slightly (+0.106). The trained 2–3-step regime is unaffected, but extrapolating past it is somewhat less stable than at 16M.
 
 ## 3. Verdicts on the pre-registered claims
 
 | # | Paper claim | Supported if (§0.2) | 128M result | Paper | Verdict |
 |---|---|---|---|---|---|
 | C1 | S2 − T++ gap keeps shrinking with data | gap < 0.149; paper match ≤ 0.114 | +0.132 | +0.064 | **Supported** (not a paper match) |
-| C2 | Thinking Longer lowers OOD ppl (Fig. 6a) | k = 2 → 3 mean OOD ppl drop > 10% | 9.7% (σ = 3); 15.0% at σ = 0, secondary | ≈ 20% | **Not supported** (narrowly) |
+| C2 | Thinking Longer lowers OOD ppl (Fig. 6a) | k = 2 → 3 mean OOD ppl drop > 10% | 9.7% (σ = 3); 15.0% at σ = 0, secondary; 10.65% with a geometric mean | ≈ 20% | **Not supported** (narrowly; convention-dependent) |
 | C3 | Self-Verification lowers it further (Fig. 6a) | BoN-10 vs k = 3 drop > 2% | −15.3% (rises) | ≈ 11% | **Not supported** (reversed) |
 | C4 | Verification gain grows with training (Fig. 6b) | Dyck BoN-5 gain > 0 at the end and ρ > 0 | −14.2%, ρ = +0.04 | 4–8% → 10–14% | **Not supported** |
 | C5 | Fewer adversarial samples with training (Fig. B.1a) | val BoN-10 vs BoN-2 gain > 0 at the end and ρ > 0 | −5.6%, ρ = +0.68 | qualitative | **Not supported** (trend right, sign wrong) |
@@ -206,7 +207,7 @@ Because C3–C6 failed, the plan's optional follow-up was run on the final S2 ch
 > - **One seed per model.** The S2 loss spikes (§2.1) show that single-run variance can be large; differences of a few hundredths of a nat between scales are not separable from seed noise.
 > - **xxs only** (D = 384). If the paper's thinking model was larger (Table D.4 "Small"), our models are ≈ 8× smaller in non-embedding parameters. Whether the thinking claims need model scale, not data scale, is not tested.
 > - **New validation set at 128M.** Absolute in-distribution losses and the k = 2 → 3 in-distribution numbers are not comparable with the 3.36M/16M points; gaps and OOD sets are.
-> - **Inference settings of the paper are not stated** (σ, k for Table 3; token scoring; percentage baselines). §0.1 fixed ours in advance; C2 would pass at σ = 0 (15.0%) but σ = 3 is the pre-registered primary setting.
+> - **Inference settings of the paper are not stated** (σ, k for Table 3; token scoring; percentage baselines). §0.1 fixed ours in advance; C2 would pass at σ = 0 (15.0%) or with a geometric/token-weighted OOD mean (10.65% / 12.2%), but σ = 3 and the arithmetic mean of per-set ppl are the pre-registered setting.
 > - **T++ was resumed once at 800k** (data order continued; ≈ 46.6k steps re-run). **S2 trained ≈ 1.93 epochs**, so part of the data was seen twice, as in the paper's 1M steps over 66M documents.
 > - **Dyck is small** (200 items, 10,818 tokens), so the C4 curve is noisy.
 > - **Different T++ references across scales**, so the off-trajectory and OOD T++ numbers change with the T++ model as well as with S2.
