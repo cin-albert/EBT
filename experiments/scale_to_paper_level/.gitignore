@@ -5,4 +5,3 @@ tmp
 logs/*.log
 *.npz
 __pycache__/
-val_subset

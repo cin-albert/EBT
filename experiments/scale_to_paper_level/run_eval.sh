@@ -3,12 +3,14 @@
 # PART=final: Table 3 checkpoints; per set in DATASETS: Q2 σ=3 (32 candidates, ≤ 1,024 seqs; T++ CE on the same
 #             tokens) and Q3 Part A (k = 1..32 at noise 0 and 3, same 1,024 seqs).
 # PART=curve: Q2 σ=3 at all 20 S2 checkpoints on each set in DATASETS (default rp_val and Dyck).
-# Env: GPU_ID (required), PART, DATASETS, S2_STEP / TPP_STEP (Table 3 steps, default 1000000).
+# Env: GPU_ID (required), PART, DATASETS, S2_STEP / TPP_STEP (Table 3 steps, default 1000000),
+#      EBT_VAL_SUBSET (rp_val source, default data/val_subset from extract_val_subset.py; set it empty to read data/full).
 # A run whose metrics.json exists is skipped, so final and curve can share the step-1M outputs.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 require_gpus "${GPU_ID:?set GPU_ID (one of 0-3)}"
 TS="$REPO/experiments/thinking_study"
 export PYTHONPATH="$REPO:$TS/common"
+export EBT_VAL_SUBSET="${EBT_VAL_SUBSET-$WS/data/val_subset}"
 S2_STEP="${S2_STEP:-1000000}"
 TPP_STEP="${TPP_STEP:-1000000}"  # also the curve's T++ reference: step 800k has two checkpoints (resume), and C4/C5 do not use T++
 cd "$REPO"

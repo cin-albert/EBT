@@ -9,10 +9,12 @@ intermediate quantity can be recorded. Semantics, matched to the repo code:
 - the prediction after the last step is softmax(z_N); the loss is CE(log_softmax(z_N), target)
 - landscape (time embedding) index of step t is min(t, mcmc_num_steps - 1)
 """
+import os
 from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytorch_lightning as L
 import torch
 import torch.nn.functional as F
@@ -56,12 +58,24 @@ def load_model(model: str, step: int = 105000, device: str = "cuda"):
     return trainer.model.to(device).eval(), hparams
 
 
+def val_subset_hparams(hparams: dict, subset: Path) -> dict:
+    """Point a run's fixed validation split at an extracted copy (scale_to_paper_level/extract_val_subset.py)."""
+    if not np.array_equal(np.load(subset / "source_indices.npy"), np.load(hparams["fixed_val_indices"])):
+        raise ValueError(f"EBT_VAL_SUBSET={subset} was not extracted with {hparams['fixed_val_indices']}")
+    return dict(hparams, dataset_dir=str(subset), fixed_val_indices=str(subset / "val_indices.npy"))
+
+
 def validation_split(hparams: dict) -> Subset:
-    """Validation set of a run: the fixed indices if the run used them, else the reproduction's seeded split."""
+    """Validation set of a run: the fixed indices if the run used them, else the reproduction's seeded split.
+
+    With $EBT_VAL_SUBSET set, the fixed split is read from that extracted copy instead of the full build.
+    """
     from data.fixed_val_split import fixed_val_split
     from data.nlp.pajama_subset import RedPajamaSubsetDataset
 
     if hparams.get("fixed_val_indices"):
+        if os.environ.get("EBT_VAL_SUBSET"):
+            hparams = val_subset_hparams(hparams, Path(os.environ["EBT_VAL_SUBSET"]))
         return fixed_val_split(RedPajamaSubsetDataset(Namespace(**hparams)), hparams["fixed_val_indices"])[1]
     L.seed_everything(SPLIT_SEED, verbose=False)
     full = RedPajamaSubsetDataset(Namespace(**hparams))

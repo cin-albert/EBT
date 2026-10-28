@@ -1,12 +1,13 @@
 """Copy the 33,000 validation documents of the full build into a small standalone pajama_subset (~17 MB).
 
 The full build (data/full, ~195 GB with the raw cache) is too large to keep. The copy has the same on-disk
-format, so RedPajamaSubsetDataset reads it directly; with --dataset_dir val_subset and --fixed_val_indices
-val_subset/val_indices.npy (= 0..32,999) the validation split yields the same documents in the same order
+format, so RedPajamaSubsetDataset reads it directly; with --dataset_dir data/val_subset and --fixed_val_indices
+data/val_subset/val_indices.npy (= 0..32,999) the validation split yields the same documents in the same order
 as the full build with val_indices_paper_33000.npy. The train split of the copy is empty.
 
 Usage: python extract_val_subset.py [src_dataset_dir] [val_indices] [out_dir]
-       (defaults: data/full, val_indices_paper_33000.npy, val_subset; all relative to this script)
+       (defaults: data/full, val_indices_paper_33000.npy, data/val_subset; all relative to this script)
+The thinking-study evals read the copy when EBT_VAL_SUBSET points at it (run_eval.sh sets it).
 """
 import json
 import sys
@@ -46,5 +47,5 @@ def extract_val_subset(src_dataset_dir: str, val_indices_path: str, out_dir: str
 if __name__ == "__main__":
     args = sys.argv[1:] + [None] * 3
     root = extract_val_subset(args[0] or str(WS / "data/full"), args[1] or str(WS / "val_indices_paper_33000.npy"),
-                              args[2] or str(WS / "val_subset"))
+                              args[2] or str(WS / "data/val_subset"))
     print(f"wrote {root}")

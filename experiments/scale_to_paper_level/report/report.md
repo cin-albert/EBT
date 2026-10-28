@@ -219,6 +219,7 @@ cd code/EBT/experiments/scale_to_paper_level
 PY=/home/quangnx/miniconda3/envs/ebt312/bin/python
 bash build_data.sh full                                   # ~12 h CPU -> data/full, logs/data_stats.json
 $PY make_val_indices.py data/full                         # val_indices_paper_33000.npy (committed)
+$PY extract_val_subset.py                                 # data/val_subset (17 MB): rp_val without data/full
 GPU_IDS=0,1,2,3 bash watch_run.sh logs/tpp_paper.log run_tpp.sh --run_name tpp-paper    # ~11 h
 GPU_IDS=0,1,2,3 bash watch_run.sh logs/s2_paper.log  run_s2.sh  --run_name s2-paper     # ~90 h
 # after an interruption, N = global step of last.ckpt (this run: T++ at N = 800000):
@@ -232,6 +233,7 @@ GPU_ID=3 PART=curve DATASETS=bigbench_dyck_languages bash run_eval.sh
 $PY collect_paper.py                                      # report/result.md, report/figures/*.png
 # §2.5 follow-up
 $PY ../scale_to_16m_sequences/entropy_vs_energy.py results/q2/s2_paper_step1000000_rp_val_noise3
+export EBT_VAL_SUBSET=$PWD/data/val_subset                # run_eval.sh sets this itself
 cd ../.. && export PYTHONPATH="$PWD:$PWD/experiments/thinking_study/common" CUDA_VISIBLE_DEVICES=0
 O=experiments/scale_to_paper_level/results/q3/s2_paper_step1000000_rp_val_partb
 $PY experiments/thinking_study/q3_energy_landscape/run_q3.py --model s2_paper --step 1000000 --data rp_val --out-dir $O

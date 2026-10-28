@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 import harness
 
@@ -24,6 +25,33 @@ def test_validation_split_uses_fixed_indices_when_present(tmp_path, monkeypatch)
     monkeypatch.setattr("data.nlp.pajama_subset.RedPajamaSubsetDataset", lambda hp: list(range(6)))
     val = harness.validation_split({"fixed_val_indices": str(tmp_path / "val.npy"), "validation_split_pct": 0.5})
     assert [val[i] for i in range(len(val))] == [4, 0, 2]
+
+
+def val_subset(tmp_path, source_indices):
+    """A minimal extract_val_subset output: row j of the copy is document source_indices[j] of the full build."""
+    sub = tmp_path / "val_subset"
+    sub.mkdir()
+    np.save(sub / "source_indices.npy", np.array(source_indices, dtype=np.int64))
+    np.save(sub / "val_indices.npy", np.arange(len(source_indices), dtype=np.int64))
+    return sub
+
+
+def test_validation_split_reads_the_val_subset_when_set(tmp_path, monkeypatch):
+    np.save(tmp_path / "val.npy", np.array([4, 0, 2], dtype=np.int64))
+    sub = val_subset(tmp_path, [4, 0, 2])
+    monkeypatch.setenv("EBT_VAL_SUBSET", str(sub))
+    monkeypatch.setattr("data.nlp.pajama_subset.RedPajamaSubsetDataset",
+                        lambda hp: [f"{hp.dataset_dir}:{i}" for i in range(3)])
+    val = harness.validation_split({"fixed_val_indices": str(tmp_path / "val.npy"), "dataset_dir": "/gone/full"})
+    assert [val[i] for i in range(len(val))] == [f"{sub}:0", f"{sub}:1", f"{sub}:2"]
+
+
+def test_val_subset_of_other_indices_is_rejected(tmp_path, monkeypatch):
+    np.save(tmp_path / "val.npy", np.array([4, 0, 2], dtype=np.int64))
+    monkeypatch.setenv("EBT_VAL_SUBSET", str(val_subset(tmp_path, [4, 2, 0])))  # same docs, other order
+    monkeypatch.setattr("data.nlp.pajama_subset.RedPajamaSubsetDataset", lambda hp: list(range(6)))
+    with pytest.raises(ValueError, match="EBT_VAL_SUBSET"):
+        harness.validation_split({"fixed_val_indices": str(tmp_path / "val.npy")})
 
 
 def test_validation_split_falls_back_to_seeded_random_split(monkeypatch):
