@@ -8,7 +8,7 @@ tags: [ebt, scaling, thinking-study, verifier, ood, self-verification]
 
 > [!summary] TL;DR
 > - **The loss gap keeps shrinking but does not reach the paper.** At the paper's data scale (batch 128 × 1M steps = 128M sequences on the full RedPajama sample-100B, 66.4M documents), the S2 − T++ validation gap is **+0.132 nats**. It was +0.247 at 3.36M sequences and +0.179 at 16M. C1 is **Supported** (< 0.149), but the gap is about twice the paper's +0.064 and stays above the "matches paper" bar of 0.114.
-> - **The paper's thinking claims do not reproduce at the paper's scale.** C2–C7 are all **Not supported**. The k = 2 → 3 gain on OOD perplexity is 9.7% at σ = 3, just under the 10% threshold (15.0% at σ = 0; the paper shows ≈ 20%). Self-verification (lowest-energy pick among candidates) makes OOD perplexity worse, not better: 82.8 → 95.4 from k = 3 to BoN-10. It is net-harmful on Dyck at every one of the 20 checkpoints. T++ beats S2 on all 4 OOD sets (paper: S2 wins 3 of 4).
+> - **The paper's thinking claims do not reproduce at the paper's scale.** C2–C7 are all **Not supported**. The k = 2 → 3 gain on OOD perplexity is 9.7% at σ = 3, just under the 10% threshold (15.0% at σ = 0; the paper shows ≈ 20%). Self-verification (lowest-energy pick among candidates) makes OOD perplexity worse, not better: 82.8 → 95.4 from k = 3 to BoN-10. It is net-harmful on Dyck at every one of the 20 checkpoints. T++ beats S2 on all 4 OOD sets (paper: S2 wins 3 of 4). Against the paper's Table 3 (§2.4), our T++ is within 1% of the paper's T++ or better on every set, while our S2 is 1.5–21% worse than the paper's EBT, so the shortfall is on the EBT side.
 > - **8× more data leaves the verifier where it was.** BoN-32 efficiency (−0.20) and pairwise consistency (0.626) are within 0.01 of the 3.36M and 16M values. The energy still ranks candidates by sharpness (R² of ΔE on Δentropy 0.973; entropy alone selects as well as E). What did improve is S2's relative deficit to T++ out of distribution: the S2/T++ ppl ratio on BB Elementary Math QA fell from 1.50 to 1.09.
 
 ## 1. Setup
@@ -96,6 +96,9 @@ Mean perplexity over the 4 OOD sets (S2 at σ = 3 unless noted):
 
 ![Fig. 6a analogue](figures/fig6a.png)
 
+> [!note] The paper's Fig. 6a values are compared only as relative changes
+> Fig. 6a's absolute values (31.8–44.8) cannot be the arithmetic mean of the paper's own Table 3 over the same 4 sets (EBT 73.6, T++ 78.3), so Fig. 6a uses an aggregation or subset the paper does not state. Our absolute values are on the scale of Table 3 (§2.4), and C2/C3 use only the relative drops.
+
 - **C2 (k = 2 → 3 lowers OOD ppl by > 10%): Not supported, narrowly.**
   - At σ = 3 the drop is 9.7%, almost the same as at 16M (9.6%). At σ = 0 it is 15.0% (16.9% at 16M).
   - The paper shows ≈ 20% and does not state its σ.
@@ -138,6 +141,26 @@ Mean perplexity over the 4 OOD sets (S2 at σ = 3 unless noted):
   - S2's relative deficit did shrink on every set, most on BB Elementary Math QA (1.50 → 1.09).
   - Part of that shrinkage comes from T++ getting worse on the BigBench sets: Dyck 92.3 → 108.0 and BB math 75.1 → 80.3, while T++ improved on GSM8K (48.7 → 40.4) and SQuAD (54.4 → 50.0).
   - With one seed and only 10.8K Dyck tokens, we do not interpret the T++ change.
+
+#### Direct comparison with the paper's Table 3
+
+Both setups pretrain once on RedPajamaV2 (xxs, batch 128 × 1M steps), take the best checkpoint and report zero-shot perplexity; the paper uses no fine-tuning or post-training (§4, App. D.1.2). The paper does not state the inference σ or k behind Table 3, so S2 is shown at the pre-registered σ = 3 and at σ = 0 (both k = 3, one sample).
+
+| Set | T++ paper | T++ ours | EBT paper | S2 ours σ = 3 | S2 ours σ = 0 | EBT / T++ paper | S2 / T++ ours (σ = 3 / σ = 0) |
+|---|---|---|---|---|---|---|---|
+| Pretrain (validation) | 31.36 | 29.75 | 33.43 | 33.94 | – | 1.066 | 1.141 / – |
+| GSM8K | 49.6 | 40.38 | 43.3 | 44.45 | 42.80 | 0.873 | 1.101 / 1.060 |
+| SQuAD | 52.3 | 50.03 | 53.1 | 56.37 | 56.55 | 1.015 | 1.127 / 1.130 |
+| BB Elementary Math QA | 79.8 | 80.34 | 72.6 | 87.92 | 83.61 | 0.910 | 1.094 / 1.041 |
+| BB Dyck Languages | 131.5 | 107.96 | 125.3 | 142.11 | 128.40 | 0.953 | 1.316 / 1.189 |
+| Mean of the 4 OOD sets | 78.3 | 69.68 | 73.6 | 82.71 | 77.84 | 0.940 | 1.187 / 1.117 |
+
+"Pretrain (validation)" for us is exp(validation CE) over all 33,000 validation documents at step 1M as logged in training (the 1,024-sequence eval subset gives 30.36 / 34.68). The paper's validation set is a different random sample of the same corpus.
+
+- **Our T++ matches or beats the paper's T++.** It is within 1% on BB math (+0.7%) and lower on every other set: by 4–5% on validation and SQuAD and by 18–19% on GSM8K and Dyck. Our evaluation therefore produces numbers on the paper's scale, and a weaker T++ reference does not explain C7.
+- **Our S2 is worse than the paper's EBT on every set at σ = 3**, from +2.7% (GSM8K) and +1.5% in-distribution to +13% (Dyck) and +21% (BB math). At σ = 0 it is within 3% on GSM8K (−1.2%) and Dyck (+2.5%), but still +6.5% on SQuAD and +15% on BB math.
+- **The paper's Table 3 wins rest on both sides of the ratio.** On GSM8K and Dyck our S2 at σ = 0 is below the paper's T++ (42.8 vs 49.6; 128.4 vs 131.5) but above our own T++, because our T++ is 18–19% lower there. Neither the paper nor we measure seed variance, and Dyck has 200 items, so T++ differences of this size between independent runs cannot be ruled out. The win/loss count of C7 is therefore sensitive to the T++ reference run.
+- **σ = 0 does not change C7:** S2 is above T++ on all 4 OOD sets at either σ.
 
 ### 2.5 The verifier and the landscape across scales (Task 8 follow-up)
 
@@ -200,6 +223,7 @@ Because C3–C6 failed, the plan's optional follow-up was run on the final S2 ch
   - This fits the structural reading in [[SUMMARIZED_FINDINGS]] §2.1: the training loss never asks the energy to rank candidates.
   - It also fits the inference loop being a fixed point of Φ = αE − H − ½‖p‖², not a descent on E. Neither property depends on data scale.
   - This is an interpretation consistent with the data, not a tested causal claim.
+- **The shortfall against the paper is on the EBT side.** Our T++ is at or below the paper's Table 3 T++ on every set, while our S2 is above the paper's EBT on every set (§2.4). The open question is therefore why an S2 trained with the paper's Table D.4 settings ends 1.5–21% worse than the paper's EBT. Candidates are unstated hyperparameters or MCMC details, seed variance and the document sampling of the data build; none is tested here.
 - **The one robust "thinking" effect is running the loop to its trained length.** k = 2 → 3 helps at every scale and on every set. It is part of S2's normal inference, which T++ does not need, and it is the only source of the positive Max-Thinking gains in §2.4.
 - **C5 is the only thinking quantity that trends in the paper's direction.** The harm of BoN-10 vs BoN-2 on validation shrinks with training (ρ = +0.68). Extrapolating that trend linearly, the sign would flip only well beyond 1M steps. This is speculative, with one seed.
 
@@ -207,7 +231,7 @@ Because C3–C6 failed, the plan's optional follow-up was run on the final S2 ch
 > - **One seed per model.** The S2 loss spikes (§2.1) show that single-run variance can be large; differences of a few hundredths of a nat between scales are not separable from seed noise.
 > - **xxs only** (D = 384). If the paper's thinking model was larger (Table D.4 "Small"), our models are ≈ 8× smaller in non-embedding parameters. Whether the thinking claims need model scale, not data scale, is not tested.
 > - **New validation set at 128M.** Absolute in-distribution losses and the k = 2 → 3 in-distribution numbers are not comparable with the 3.36M/16M points; gaps and OOD sets are.
-> - **Inference settings of the paper are not stated** (σ, k for Table 3; token scoring; percentage baselines). §0.1 fixed ours in advance; C2 would pass at σ = 0 (15.0%) or with a geometric/token-weighted OOD mean (10.65% / 12.2%), but σ = 3 and the arithmetic mean of per-set ppl are the pre-registered setting.
+> - **Inference settings of the paper are not stated** (σ, k for Table 3; token scoring; percentage baselines; the aggregation behind Fig. 6a's absolute values). §0.1 fixed ours in advance; C2 would pass at σ = 0 (15.0%) or with a geometric/token-weighted OOD mean (10.65% / 12.2%), but σ = 3 and the arithmetic mean of per-set ppl are the pre-registered setting.
 > - **T++ was resumed once at 800k** (data order continued; ≈ 46.6k steps re-run). **S2 trained ≈ 1.93 epochs**, so part of the data was seen twice, as in the paper's 1M steps over 66M documents.
 > - **Dyck is small** (200 items, 10,818 tokens), so the C4 curve is noisy.
 > - **Different T++ references across scales**, so the off-trajectory and OOD T++ numbers change with the T++ model as well as with S2.
