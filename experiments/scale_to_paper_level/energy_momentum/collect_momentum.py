@@ -253,12 +253,14 @@ def plot_bon(bons: dict[str, dict], path: Path) -> None:
     fig, ax = plt.subplots(figsize=(5, 3.6))
     for (arm, k), bon in bons.items():
         y = [mean_ood_ppl({s: bon[s][n] for s in OOD_SETS}) for n in BON_N]
-        ax.plot(BON_N, y, "-" if k == 3 else "--", color=C_EBT if arm == "gd_a5" else C_ARM, lw=2, marker="o", ms=5,
-                label=f"{arm}, k = {k}")
+        color = C_EBT if arm == "gd_a5" else C_ARM
+        # k = 3 solid + filled markers, other k dashed + hollow markers (distinguishable in the legend too)
+        ax.plot(BON_N, y, ls="-" if k == 3 else (0, (4, 2)), color=color, lw=2, marker="o", ms=6,
+                mfc=color if k == 3 else "white", mew=1.5, label=f"{arm}, k = {k}")
     ax.set_xticks(BON_N)
     ax.set_xlabel("candidates N (lowest final energy kept), σ = 3")
     ax.set_ylabel("mean OOD perplexity")
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(frameon=False, fontsize=8, handlelength=4)
     ax.grid(alpha=0.2)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
