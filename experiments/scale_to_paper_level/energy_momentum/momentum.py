@@ -26,6 +26,10 @@ class Arm:
     schedule: Literal["const", "harmonic", "geom"] = "const"
     gamma: float = 1.0  # geom only
 
+    def __post_init__(self):
+        if self.schedule not in ("const", "harmonic", "geom"):
+            raise ValueError(f"unknown schedule {self.schedule!r}")
+
 
 ARMS: dict[str, Arm] = {
     a.name: a

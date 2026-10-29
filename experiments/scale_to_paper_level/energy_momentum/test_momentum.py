@@ -128,3 +128,9 @@ def test_decay_scales_each_update():
     nexts = [s.z for s in steps[1:]] + [z_final]
     for t, (s, z_next) in enumerate(zip(steps, nexts)):
         assert torch.allclose(z_next - s.p, -5.0 / (t + 1) * s.grad, atol=1e-6)
+
+
+def test_unknown_schedule_rejected():
+    import pytest
+    with pytest.raises(ValueError):
+        Arm("x", "gd", 0.0, 5.0, "harmonc")

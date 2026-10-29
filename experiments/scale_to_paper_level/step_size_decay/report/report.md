@@ -6,9 +6,9 @@ date: 2026-10-29
 # Step-size decay — does a smaller step explain the EMA momentum gain?
 
 > [!summary] TL;DR
-> - **No. Every step-size schedule is worse than the trained constant α = 5, and far worse than EMA momentum.** The arm selected on rp_val (`gd_a3.5`) reaches 84.42 mean OOD ppl at k = 3, against `gd_a5` 82.76 and `ema_m0.5` 72.21. Decaying schedules reach 102.6–384.1 at k = 3 and drift toward a uniform distribution with more steps. D1's pre-registered verdict is **"momentum does more"**, and D2–D5 are not supported.
-> - **In the repo's inference loop, α is also the output temperature.** Each update re-anchors at the probabilities, z_{t+1} = p_t − α_t u_t, and p_t ∈ [0, 1]. The logit spread is therefore ≈ α_t times the spread of u_t. Decaying α flattens p_t: entropy climbs to log V, and `gd_a5_g0.5` ends at ppl 50,277 = V, a uniform distribution. A smaller constant α instead makes the 2-cycle worse (64–78% of tokens vs 29.6%).
-> - **What EMA does is selective, not global, damping.** Decay arms remove the 2-cycle (0%) but destroy the logit scale. Bias-corrected EMA removes the 2-cycle and keeps the scale along directions where gradients agree. Adding a harmonic decay to EMA (`ema_m0.5_harm`, 424.0) destroys the gain. The reviewer's open question in `../energy_momentum/report/report.md` §2.3 is answered for global step-size schedules. A schedule that shrinks the update without shrinking the logit scale was not tested.
+> - **No, for every schedule tested.** All of them are worse than the trained constant α = 5 at k = 3, and far worse than EMA momentum. The arm selected on rp_val (`gd_a3.5`) reaches 84.42 mean OOD ppl at k = 3, against `gd_a5` 82.76 and `ema_m0.5` 72.21; its deficit against `gd_a5` is significant on 4 of 5 sets, but not on Dyck. Decaying schedules reach 102.6–384.1 at k = 3 and drift toward a uniform distribution with more steps. D1's pre-registered verdict is **"momentum does more"**, and D2–D5 are not supported.
+> - **Under decay, the output flattens toward uniform.** Each update re-anchors at the probabilities, z_{t+1} = p_t − α_t u_t, with p_t ∈ [0, 1], so a shrinking α_t limits how far the logits can move from p_t. Entropy climbs to log V, and `gd_a5_g0.5` ends at ppl 50,277 = V. This is consistent with α setting the logit scale, but logit norms and |u| were not recorded. A smaller *constant* α does not simply raise the temperature: at odd t its entropy matches α = 5, and its 2-cycle gets worse (64–78% of tokens vs 29.6%).
+> - **Hypothesis, not measured: EMA's damping is selective rather than global.** Decay damps the even/odd oscillation only by freezing or flattening the state. EMA removes it while staying sharp. Adding a harmonic decay to EMA (`ema_m0.5_harm`) costs the gain at k = 3 (424.0). The momentum report's open question (§2.3 there) is answered for the global schedules tested. A damping that leaves the logit scale unchanged was not tested.
 
 ## 1. Setup
 
@@ -16,7 +16,7 @@ date: 2026-10-29
 |---|---|
 | Checkpoint | `s2_paper`, step 1M (the momentum report's checkpoint) |
 | Sequences | 1,024 per set (rp_val + 4 OOD), batch 16, `torch.manual_seed(seed + b)`, k = 1…32 recorded per step |
-| Pairing | Same sequences and seeds as the momentum grid; the constant-schedule path reproduces `gd_a5` bit-exactly (`test_run_decay.py`) |
+| Pairing | Same sequences and seeds as the momentum grid; the constant-schedule path reproduces `gd_a5` bit-exactly (`test_run_decay.py`, GPU; rp_val, σ = 3, first 64 sequences; run and passed before the grid) |
 | Noise | σ ∈ {0, 3}; σ is added to the logits each step and is not decayed |
 | Selection | `d*` = lowest rp_val CE at k = 3, σ = 3 among the 7 GD arms |
 | Metric | Arithmetic mean of the 4 OOD sets' ppl at k = 3, σ = 3 |
@@ -45,7 +45,7 @@ Arms (α_t of update t = 0, 1, …; update 0 leaves the random initial state):
 | D4 | Decay stops the drift with k | +30.4% from k = 3 to 32 (EMA +8.5%) | < +2% | **Not supported** |
 | D5 | (exploratory) Momentum and decay add up | `ema_m0.5_harm` 424.0 vs 72.21 | CI < 0 on ≥ 3/4 | **Not supported** |
 
-Note on D3 and D4: the selection picked a *constant* small α, because every decaying arm is worse on rp_val (CE 3.79–5.01 vs 3.59). The decaying arms do pass D3 (0% 2-cycles, §2.3), but they fail on perplexity, so the claim the plan meant to test still fails.
+Note on D3 and D4: the selection picked a *constant* small α, because every decaying arm is worse on rp_val (CE 3.79–5.01 vs 3.59). The decaying arms show 0% 2-cycles at t = 31, but that metric is nearly vacuous for them: their state has frozen (median TV at t = 30 is 4e-8 for `gd_a5_g0.5`), and a damped zig-zag is still visible at small k (§2.3). They also fail on perplexity, so the claim the plan meant to test fails either way.
 
 ### 2.2 Perplexity (k = 3, σ = 3)
 
@@ -75,7 +75,7 @@ p = softmax(z + noise)            # p in [0, 1]
 z = p - alpha_t * u               # logits = O(1) + alpha_t * u
 ```
 
-Because p_t is bounded, the logits' spread is set almost entirely by α_t · u_t. α acts as an inverse temperature as much as a step size. The data agree:
+Because p_t is bounded, the logits' spread equals that of α_t · u_t up to O(1). This is an identity, not evidence: u = g adapts to p. The entropies below are consistent with α setting the logit scale *under decay*, and with α acting as a temperature at t = 1 (entropy 0.40 / 0.67 / 1.12 nats at α = 7.5 / 5 / 3.5). They do not show a pure temperature effect for a smaller constant α. Logit norms and |u| were not recorded.
 
 | Arm (rp_val, σ = 0) | Entropy of p_t, t = 1…6 (nats; log V = 10.83) | 2-cycle share, t = 31 |
 |---|---|---|
@@ -86,14 +86,16 @@ Because p_t is bounded, the logits' spread is set almost entirely by α_t · u_t
 | `gd_a5_g0.5` | 0.67, 7.94, 8.35, 9.94, 10.44, 10.71 | 0.0% |
 | `gd_a7.5_g0.7` | 0.40, 4.69, 5.87, 6.72, 7.74, 8.44 | 0.0% |
 
-- **Decay removes the oscillation by flattening the output.** Every decaying arm has 0% 2-cycles, but its entropy rises toward log V. At k = 32, `gd_a5_g0.5` has mean OOD ppl 50,277, which is exactly the uniform distribution over the vocabulary. Removing the 2-cycle is therefore not sufficient for the EMA gain.
-- **A smaller constant α makes the oscillation worse.** The 2-cycle share is 63.9% at α = 3.5 and 78.1% at α = 2.5, against 29.6% at α = 5. The entropy alternates between ≈ 4.4 and ≈ 6.4 nats, so perplexity is good at odd k and bad at even k. For `gd_a2.5` at σ = 0, ppl is 83.2 at k = 3 and 443.9 at k = 2. The best odd-k values (83.2 / 79.4 at k = 3, σ = 0) are near `gd_a5` (77.8) and still above EMA (72.7).
-- **EMA damps only the alternating component.** Bias-corrected EMA divides the weighted gradient sum by the weights' sum. Where consecutive gradients agree, |u| ≈ |g| and the logit scale is kept. Where they alternate, they cancel. Adding a harmonic decay on top (`ema_m0.5_harm`) shrinks the scale again and ppl explodes (424.0 at k = 3). In this loop, EMA's benefit cannot be reproduced by any global scalar on the step.
+- **Decay damps the oscillation as α → 0, while the state freezes or flattens.** The zig-zag is still visible at small k, damped and riding on an upward drift: `gd_a5_harm` at σ = 0 goes 171 → 1105 → 542 → 1359 from k = 3 to 6, and its entropy goes 7.94 → 6.91 → 8.96 → 8.49. Entropy rises toward log V. At k = 32, `gd_a5_g0.5` has mean OOD ppl 50,277: per-set CE is 10.825 = ln V, which is the uniform distribution over the vocabulary. Damping the oscillation this way does not give the EMA gain.
+- **A smaller constant α makes the oscillation worse.** The 2-cycle share is 63.9% at α = 3.5 and 78.1% at α = 2.5, against 29.6% at α = 5. The entropy alternates (≈ 4.4 ↔ 6.4 nats for α = 3.5, ≈ 4.7 ↔ 7.7 for α = 2.5), so perplexity is good at odd k and bad at even k. For `gd_a2.5` at σ = 0, ppl is 83.2 at k = 3 and 443.9 at k = 2. The best odd-k values (83.2 / 79.4 at k = 3, σ = 0) are near `gd_a5` (77.8) and still above EMA (72.7).
+- **A hypothesis for EMA, not measured here: it damps only the alternating component.** Bias-corrected EMA divides the weighted gradient sum by the weights' sum. Where consecutive gradients agree, |u| ≈ |g| and the logit scale would be kept; where they alternate, they cancel. Gradient cosines and |u| per step would test this.
+- **EMA plus decay.** Adding a harmonic decay to EMA (`ema_m0.5_harm`) makes k = 3 much worse (424.0) and the drift with k much faster. Post hoc, it is *better* than `ema_m0.5` at k = 2: 104.2 vs 113.4 at σ = 3, and 98.0 vs 124.9 at σ = 0.
+- **Scope.** The control covers α ∈ {2.5, 3.5, 5, 7.5, …} and 5 decay schedules. α = 3, 4, values between 5 and 7.5, and late decay were not run. The trend at k = 3 (2.5 → 90.0, 3.5 → 84.4, 5 → 82.8, 7.5 → 86.5) leaves little room for a constant α near 72.
 
 ## 3. Interpretation
 
-- **The momentum report's main caveat is answered for global schedules.** "The trained α = 5 is too large at inference, and a smaller or decaying α would do as well" is ruled out: every constant α < 5 and every decay schedule tested is worse than α = 5, and far worse than EMA.
-- **"Step size" is the wrong control in a re-anchored loop.** The plan treated α as a pure step size. In this loop it also sets the temperature, so shrinking α trades the 2-cycle for a flat distribution. EMA wins because it is direction-selective. The plan's prediction (decay recovers 73–78) was wrong.
+- **The momentum report's main caveat is answered for the global schedules tested.** "The trained α = 5 is too large at inference, and a smaller or decaying α would do as well" does not hold here: both constant α < 5 and all 5 decay schedules are worse than α = 5 at k = 3, and far worse than EMA. At k = 2, `gd_a7.5_g0.7` (87.4) is better than `gd_a5` (91.7), but every arm's k = 2 value is far from EMA's 72.2 at k = 3.
+- **"Step size" is an imperfect control in a re-anchored loop.** The plan treated α as a pure step size. Under decay, shrinking α also shrinks how far the logits move from the bounded p, which is consistent with the flattening seen. My expectation before the run (decay lands at 73–78) was wrong. Why EMA works, possibly by direction-selective damping, remains a hypothesis.
 - **What remains untested** is a control that damps the update without changing the logit scale. Examples are a non-re-anchored loop z_{t+1} = z_t − α_t g_t, or decaying α while rescaling the logits to a fixed norm. Such a control would separate "averaging directions" from "selective damping of alternating components". These are new update rules rather than step-size controls, and for this question they are close to what EMA already is.
 
 > [!warning] Limitations
