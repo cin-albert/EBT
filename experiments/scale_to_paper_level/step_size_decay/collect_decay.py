@@ -130,7 +130,8 @@ def write_result(ce: dict, arms: list[str], d_star: str, rows: list[dict]) -> st
 
 
 def plot(ce: dict, arms: list[str], d_star: str, path: Path) -> None:
-    """α_t per arm, and mean OOD ppl vs k at σ = 3 and σ = 0; d*, gd_a5, ema_m0.5 highlighted, others muted."""
+    """α_t per arm; mean OOD ppl vs k at σ = 3 and σ = 0 (log axis); entropy of p_t on rp_val (σ = 0).
+    d*, gd_a5, ema_m0.5 and ema_m0.5_harm are highlighted, the other arms muted."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -139,7 +140,7 @@ def plot(ce: dict, arms: list[str], d_star: str, path: Path) -> None:
     key = {"gd_a5": ("gd_a5 (trained α)", C_EBT, "-"), "ema_m0.5": ("ema_m0.5 (momentum)", C_ARM, "-"),
            d_star: (f"{d_star} (d*)", C_EXTRA, "-"), "ema_m0.5_harm": ("ema_m0.5_harm", C_ARM, (0, (4, 2)))}
     ks = [k for k in K_LIST if k > 1]
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.2), gridspec_kw={"width_ratios": [0.8, 1, 1]})
+    fig, axes = plt.subplots(1, 4, figsize=(19, 4.4), gridspec_kw={"width_ratios": [0.8, 1, 1, 0.9]})
     t = np.arange(10)
     for a in arms:
         arm = DECAY_ARMS.get(a) or ARMS[a]
@@ -156,9 +157,18 @@ def plot(ce: dict, arms: list[str], d_star: str, path: Path) -> None:
         ax.axvline(3, color=MUTED, lw=1, alpha=0.4)
         ax.set_xscale("log", base=2)
         ax.set_xticks(ks, [str(k) for k in ks], fontsize=8)
-        ax.set_ylim(60, 130)
+        ax.set_yscale("log")
+        ax.set_ylim(60, 1e5)
         ax.set(xlabel="MCMC steps k (trained: 3)", ylabel="mean OOD perplexity (4 sets)", title=f"σ = {noise:g}")
-    axes[1].legend(frameon=False, fontsize=8, loc="upper right", handlelength=3)
+    for a in [a for a in arms if a not in key] + [a for a in key if a in arms]:
+        label, color, ls = key.get(a, (None, MUTED, "-"))
+        ent = load(a, "rp_val", 0.0)["entropy"].mean(1)
+        axes[3].plot(np.arange(len(ent)), ent, ls=ls, color=color, lw=2 if a in key else 1, alpha=1 if a in key else 0.5)
+    axes[3].axhline(math.log(50277), color=MUTED, ls=":", lw=1.5)
+    axes[3].annotate("uniform (log V)", (31, math.log(50277)), xytext=(0, -12), textcoords="offset points",
+                     ha="right", fontsize=8, color="#3d3d3a")
+    axes[3].set(xlabel="state t (σ = 0)", ylabel="entropy of p_t (nats)", title="Output entropy, rp_val")
+    axes[1].legend(frameon=False, fontsize=8, loc="upper left", handlelength=3)
     for ax in axes:
         ax.grid(alpha=0.2)
         ax.spines[["top", "right"]].set_visible(False)
