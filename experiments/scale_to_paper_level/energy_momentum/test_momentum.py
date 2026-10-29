@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import harness
-from momentum import ARMS, Arm, momentum_mcmc, run_momentum_mcmc
+from momentum import ARMS, Arm, momentum_mcmc, run_momentum_mcmc, step_size
 
 V, D, B, S = 7, 4, 2, 3
 
@@ -113,3 +113,24 @@ def test_arms_registry():
     assert sorted(a.mu for a in ARMS.values() if a.rule == "ema") == [0.3, 0.5, 0.7, 0.9]
     assert all(a.alpha == 5.0 for a in ARMS.values() if a.rule != "gd")
     assert all(name == a.name for name, a in ARMS.items())
+
+
+def test_step_size_schedules():
+    assert [step_size(Arm("c", "gd"), t) for t in range(3)] == [5.0, 5.0, 5.0]
+    harm = [step_size(Arm("h", "gd", 0.0, 5.0, "harmonic"), t) for t in range(3)]
+    assert harm[:2] == [5.0, 2.5] and abs(harm[2] - 5 / 3) < 1e-12
+    assert [step_size(Arm("g", "gd", 0.0, 5.0, "geom", 0.5), t) for t in range(3)] == [5.0, 2.5, 1.25]
+
+
+def test_decay_scales_each_update():
+    model = stub_model(nonlinear=False)
+    steps, z_final = run(model, Arm("h", "gd", 0.0, 5.0, "harmonic"), n_steps=4, noise=0.0)
+    nexts = [s.z for s in steps[1:]] + [z_final]
+    for t, (s, z_next) in enumerate(zip(steps, nexts)):
+        assert torch.allclose(z_next - s.p, -5.0 / (t + 1) * s.grad, atol=1e-6)
+
+
+def test_unknown_schedule_rejected():
+    import pytest
+    with pytest.raises(ValueError):
+        Arm("x", "gd", 0.0, 5.0, "harmonc")

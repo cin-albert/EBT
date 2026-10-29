@@ -5,6 +5,7 @@ z_{t+1} = p_t - alpha * u_t. The rules differ only in u_t:
   gd : u_t = g_t                                                  (bit-identical to harness.mcmc)
   hb : v_t = mu v_{t-1} + g_t;               u_t = v_t           (heavy-ball; steady-state step alpha / (1 - mu))
   ema: m_t = mu m_{t-1} + (1 - mu) g_t;      u_t = m_t / (1 - mu^(t+1))   (bias-corrected; step-size neutral)
+The step size follows arm.schedule (step_size; default constant alpha, the repo loop).
 Random draws follow harness.mcmc's order, so with the same torch seed every arm sees the same noise.
 """
 from dataclasses import dataclass
@@ -22,6 +23,12 @@ class Arm:
     rule: Literal["gd", "hb", "ema"]
     mu: float = 0.0
     alpha: float = 5.0
+    schedule: Literal["const", "harmonic", "geom"] = "const"
+    gamma: float = 1.0  # geom only
+
+    def __post_init__(self):
+        if self.schedule not in ("const", "harmonic", "geom"):
+            raise ValueError(f"unknown schedule {self.schedule!r}")
 
 
 ARMS: dict[str, Arm] = {
@@ -29,6 +36,15 @@ ARMS: dict[str, Arm] = {
     for a in [Arm(f"gd_a{al:g}", "gd", 0.0, al) for al in (5.0, 7.5, 10.0, 15.0, 20.0)]
     + [Arm(f"{rule}_m{mu:g}", rule, mu) for rule in ("hb", "ema") for mu in (0.3, 0.5, 0.7, 0.9)]
 }
+
+
+def step_size(arm: Arm, t: int) -> float:
+    """alpha_t of update t = 0, 1, ...: const alpha, harmonic alpha / (t + 1), geom alpha * gamma^t."""
+    if arm.schedule == "const":
+        return arm.alpha
+    if arm.schedule == "harmonic":
+        return arm.alpha / (t + 1)
+    return arm.alpha * arm.gamma ** t
 
 
 def momentum_mcmc(model, input_ids: torch.Tensor, n_steps: int, noise_std: float, arm: Arm,
@@ -54,7 +70,7 @@ def momentum_mcmc(model, input_ids: torch.Tensor, n_steps: int, noise_std: float
             u = v
         else:  # m_t / (1 - mu^(t+1)) == s_t / sum_{i<=t} mu^i; this form is exact at t = 0
             u = v / sum(arm.mu ** i for i in range(t + 1))
-        z = p.detach() - arm.alpha * u
+        z = p.detach() - step_size(arm, t) * u
     return z.detach()
 
 

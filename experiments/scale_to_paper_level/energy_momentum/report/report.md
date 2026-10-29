@@ -7,7 +7,7 @@ tags: [ebt, momentum, inference, thinking-study, ood]
 # Energy momentum — training-free momentum in EBT inference
 
 > [!summary] TL;DR
-> - **Bias-corrected EMA momentum (μ = 0.5) is a free, sizeable win at the trained step count.** On the final `s2_paper` checkpoint, with the same 3 forward passes, mean OOD perplexity falls from **82.76 to 72.21 (−12.7%)**. The paired 95% CI is below zero on all 5 sets, from −2.6% ppl in distribution to −19.8% on BB Math QA. Larger GD steps do not explain it (the best GD configuration over every α ≥ 5 and k reaches only 78.0); smaller steps were not tested. S2 now beats T++ on BB Math QA (70.9 vs 80.3), though it still trails on the 4-set mean (72.2 vs 69.7). Under the full-set Table 3 protocol (§2.6), the gain holds on every set (paired CIs exclude 0), and S2 + EMA (71.9 OOD mean) is at or below the paper's EBT on 4 of 5 sets.
+> - **Bias-corrected EMA momentum (μ = 0.5) is a free, sizeable win at the trained step count.** On the final `s2_paper` checkpoint, with the same 3 forward passes, mean OOD perplexity falls from **82.76 to 72.21 (−12.7%)**. The paired 95% CI is below zero on all 5 sets, from −2.6% ppl in distribution to −19.8% on BB Math QA. Larger GD steps do not explain it (the best GD configuration over every α ≥ 5 and k reaches only 78.0). In the [step-size follow-up](../../step_size_decay/report/report.md), smaller constant α (2.5, 3.5) and 5 decaying schedules are all worse than α = 5 at k = 3 (best 84.4). S2 now beats T++ on BB Math QA (70.9 vs 80.3), though it still trails on the 4-set mean (72.2 vs 69.7). Under the full-set Table 3 protocol (§2.6), the gain holds on every set (paired CIs exclude 0), and S2 + EMA (71.9 OOD mean) is at or below the paper's EBT on 4 of 5 sets.
 > - **It coincides with removing the GD loop's even/odd oscillation, not with making longer thinking pay off.** Plain GD leaves 29.6% of rp_val tokens in a 2-cycle at t = 31; every EMA and heavy-ball arm leaves ≈ 0%. For the selected arm, more steps still hurt (k = 5 is 5.8% worse than k = 3, M3 not supported). Larger μ moves the optimum to k = 4–7 instead: `ema_m0.9` at k = 6 gives 71.6, post hoc.
 > - **Self-verification remains unhelpful at the trained length (M5 not supported), but it is no longer harmful.** BoN-10 vs 1 sample is −1.6% with EMA vs −15.3% with GD. At k = 5 with EMA, BoN helps on all 5 sets (+0.8% to +5.1%; post hoc, no CI, Dyck's +0.8% may be noise). Heavy-ball with μ ≥ 0.5 degrades badly (μ = 0.9 diverges), because its effective step α/(1−μ) is too large. Phase 3 (retraining) is **not triggered**, since M1 holds.
 
@@ -83,11 +83,11 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 
 ![rp_val ΔCE vs gd_a5 at k = 3](figures/grid_heatmap.png)
 
-- **Larger GD steps do not reproduce the gain. Smaller ones were not tested.**
+- **Larger GD steps do not reproduce the gain. Smaller and decaying ones do not either** ([step-size follow-up](../../step_size_decay/report/report.md): best 84.4 at k = 3).
   - At k = 3, α = 7.5 is already worse than the trained α = 5, and α ≥ 10 is much worse. So `gd*` is the baseline itself.
   - Checked post hoc over every α and k > 1 (choosing on OOD, which favours GD), the best GD configuration is `gd_a7.5` at k = 2 with 78.0. That is still 7.4% worse than `ema_m0.5` at k = 3.
 - **Heavy-ball is the step-size confound in action.** Its effective step α Σμ^i grows with t, so μ = 0.3 is near GD, μ = 0.5 and 0.7 settle on much worse plateaus (≈ 119 and ≈ 850), and μ = 0.9 diverges (ppl > 10⁸ at k = 32).
-- **The bias-corrected EMA is not purely direction averaging.** For a constant gradient it keeps the GD step length. When gradients alternate, which is exactly the 2-cycle regime here, the average partly cancels, so the *effective step is also smaller* (e.g. u₁ = (0.5 g₀ + g₁)/1.5). The grid has no GD arm with α < 5 and no decaying α. So "EMA helps" cannot yet be separated from "the trained α = 5 is too large at inference, and a smaller or damped step helps" (§4, step 1).
+- **The bias-corrected EMA is not purely direction averaging.** For a constant gradient it keeps the GD step length. When gradients alternate, which is exactly the 2-cycle regime here, the average partly cancels, so the *effective step is also smaller* (e.g. u₁ = (0.5 g₀ + g₁)/1.5). The grid has no GD arm with α < 5 and no decaying α. The [step-size follow-up](../../step_size_decay/report/report.md) tested the global version of this alternative: constant α ∈ {2.5, 3.5} and harmonic or geometric decay are all worse than α = 5. Under decay the output flattens toward uniform, consistent with α setting the logit scale (z = p − α u with p ∈ [0, 1]). A hypothesis, not measured: EMA's damping is selective, shrinking only the alternating component.
 
 ### 2.4 Why it helps: the GD loop oscillates (M3, M4)
 
@@ -157,7 +157,7 @@ Full table, including Lightning's epoch aggregation: `report/table3.md`.
 
 - **Part of the "thinking" gap in our reproduction is an optimizer problem, not a verifier problem.** The trained energy landscape plus a plain GD update at the trained α produces a period-2 oscillation. A training-free, compute-neutral change of update rule recovers 12.7% OOD perplexity. That is more than the paper's own k = 2 → 3 "thinking longer" effect reproduces at σ = 3 (9.7%).
 - **The verifier itself is unchanged.** BoN at the trained length is still not useful (M5). Momentum changes the path, not E, as predicted in the plan.
-- **The update rule is a lever the paper does not explore.** The paper's inference loop is the same plain GD (Algorithm 2), so EBTs trained and evaluated this way may leave this gain unused. Whether the paper's own checkpoints oscillate is unknown, and whether a simpler fix (a smaller α at inference) does as well is untested.
+- **The update rule is a lever the paper does not explore.** The paper's inference loop is the same plain GD (Algorithm 2), so EBTs trained and evaluated this way may leave this gain unused. Whether the paper's own checkpoints oscillate is unknown. The smaller and decaying α schedules tested do not do as well ([step-size follow-up](../../step_size_decay/report/report.md)).
 
 > [!warning] Limitations
 > - **One checkpoint, one training seed.** Whether EMA helps other EBT checkpoints (16M, 3.36M) is untested.
@@ -165,12 +165,12 @@ Full table, including Lightning's epoch aggregation: `report/table3.md`.
 > - **1,024-sequence subsets** for the grid, BoN and claims M1–M6, as in Q2/Q3. Only `ema_m0.5` at k = 3 was rescored on the full sets (§2.6). Dyck has 200 items and 10.8K tokens even in full.
 > - **rp_val was used both to select `arm*` and to report it.** The OOD sets were never used for selection, except in the rows marked post hoc.
 > - **A coarse μ grid** (0.3–0.9 in steps of ≈ 0.2), with α fixed at 5 for the momentum arms. Nesterov is not run.
-> - **The step-size control only goes upward** (α ∈ {5, 7.5, 10, 15, 20}). A smaller α or a decaying α could explain part or all of the EMA gain (§2.3).
+> - **Step-size controls are global scalars.** α ∈ {5, …, 20} here, plus α ∈ {2.5, 3.5} and decaying α in the [step-size follow-up](../../step_size_decay/report/report.md). All are worse than EMA. A damping that leaves the logit scale unchanged was not tested.
 
 ## 4. Possible next steps
 
 These are not run, and the choice is yours:
-1. **Close the step-size question first:** GD with α ∈ {2.5, 3, 3.5, 4} and a decaying α (α_t = 5 / (t + 1)) at k = 3, on the same sequences and seeds. This needs ≈ 4 arms × 12 min on GPUs 0, 2, 3. If one of them reaches ≈ 72, the finding becomes "the trained α is too large at inference" rather than "momentum helps".
+1. ~~Close the step-size question~~: done in the [step-size follow-up](../../step_size_decay/report/report.md). Smaller and decaying α are worse than α = 5.
 2. Check whether the gain holds on the 3.36M and 16M S2 checkpoints and across 3 noise seeds. This is cheap: about 1 GPU-hour.
 3. Run Q2 verifier metrics on EMA candidates to test the §2.5 reading.
 4. Phase 3 (retraining with momentum) is not triggered by the gate. It remains an option if the question becomes whether a landscape trained with EMA in the loop does better still.
