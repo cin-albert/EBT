@@ -85,7 +85,7 @@ def bon_ce(e: np.ndarray, logp: np.ndarray, n: int) -> float:
 
 
 # ---------------------------------------------------------------- loading and tables
-C_EBT, C_TPP, C_ARM, MUTED = "#2a78d6", "#eb6834", "#1baf7a", "#8a8984"  # categorical slots 1-3; gray for the control
+C_EBT, C_TPP, C_ARM, C_EXTRA, MUTED = "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#8a8984"  # slots 1-4; gray = control
 DIV_NEG, DIV_MID, DIV_POS = "#2a78d6", "#f0efec", "#e34948"  # diverging blue <-> red, gray midpoint
 
 
@@ -186,30 +186,36 @@ def claims(ce: dict, tpp: dict, arm_star: str, gd_star: str, k_star: int) -> tup
 
 
 # ---------------------------------------------------------------- figures
-def plot_ce_vs_k(ce: dict, tpp: dict, arm_star: str, gd_star: str, path: Path) -> None:
+def plot_ce_vs_k(ce: dict, tpp: dict, arm_star: str, gd_star: str, extra: str, path: Path) -> None:
+    """Mean OOD ppl vs k >= 2 for gd_a5, gd*, arm* and one extra (post-hoc) arm; T++ as a reference line."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    ks = [k for k in K_LIST if k > 1]
     tpp_mean = mean_ood_ppl({s: tpp[s] for s in OOD_SETS})
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharex=True)
+    styles = {gd_star: ("GD control", MUTED, "--"), "gd_a5": ("GD, trained α = gd*" if gd_star == "gd_a5" else
+                                                             "GD, trained α", C_EBT, "-"),
+              extra: ("post-hoc best", C_EXTRA, "--"), arm_star: ("arm*", C_ARM, "-")}
+    series = dict.fromkeys(["gd_a5", gd_star, arm_star, extra])
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
     for ax, noise in zip(axes, NOISES):
-        lines = [("gd_a5 (GD, trained α)", "gd_a5", C_EBT, "-"), (f"{gd_star} (GD control)", gd_star, MUTED, "--"),
-                 (f"{arm_star} (arm*)", arm_star, C_ARM, "-")]
-        for label, arm, color, ls in dict.fromkeys(lines):
-            y = [ood_ppl(ce, arm, noise, k) for k in K_LIST]
-            ax.plot(K_LIST, y, ls, color=color, lw=2, marker="o", ms=4, label=label)
-        ax.axhline(tpp_mean, color=C_TPP, ls=":", lw=2, label="Transformer++")
+        for arm in series:
+            role, color, ls = styles[arm]
+            ax.plot(ks, [ood_ppl(ce, arm, noise, k) for k in ks], ls, color=color, lw=2, marker="o", ms=4,
+                    label=f"{arm} ({role})")
+        ax.axhline(tpp_mean, color=C_TPP, ls=":", lw=2, label="Transformer++ (1 pass)")
         ax.axvline(3, color=MUTED, lw=1, alpha=0.4)
         ax.set_xscale("log", base=2)
-        ax.set_xticks(K_LIST, [str(k) for k in K_LIST], fontsize=8)
+        ax.set_xticks(ks, [str(k) for k in ks], fontsize=8)
+        ax.set_ylim(60, 130)
         ax.set_title(f"σ = {noise:g}", fontsize=10, color="#3d3d3a")
         ax.set_xlabel("MCMC steps k (trained: 3)")
         ax.grid(alpha=0.2)
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
     axes[0].set_ylabel("mean OOD perplexity (4 sets)")
-    axes[0].legend(frameon=False, fontsize=8)
+    axes[1].legend(frameon=False, fontsize=8, loc="upper right")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -344,7 +350,8 @@ def main():
             if (b := bon_results(a, k)) is not None}
     (REPORT / "figures").mkdir(parents=True, exist_ok=True)
     (REPORT / "result.md").write_text(write_result(ce, tpp, arms, sel, rows, ok, bons))
-    plot_ce_vs_k(ce, tpp, sel[0], sel[1], REPORT / "figures/ce_vs_k.png")
+    extra = min(((a, k) for a in arms for k in K_LIST if k > 1), key=lambda ak: ood_ppl(ce, ak[0], 3.0, ak[1]))[0]
+    plot_ce_vs_k(ce, tpp, sel[0], sel[1], extra, REPORT / "figures/ce_vs_k.png")
     plot_grid_heatmap(ce, arms, REPORT / "figures/grid_heatmap.png")
     if bons:
         plot_bon(bons, REPORT / "figures/bon.png")
