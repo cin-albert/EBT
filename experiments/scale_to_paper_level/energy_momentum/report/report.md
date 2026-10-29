@@ -7,9 +7,9 @@ tags: [ebt, momentum, inference, thinking-study, ood]
 # Energy momentum — training-free momentum in EBT inference
 
 > [!summary] TL;DR
-> - **Bias-corrected EMA momentum (μ = 0.5) is a free, sizeable win at the trained step count.** On the final `s2_paper` checkpoint, with the same 3 forward passes, mean OOD perplexity falls from **82.76 to 72.21 (−12.7%)**. The paired 95% CI is below zero on all 5 sets, from −2.6% ppl in distribution to −19.8% on BB Math QA. Larger GD steps do not explain it: the best GD configuration over every α and k reaches only 78.0. S2 now beats T++ on BB Math QA (70.9 vs 80.3), though it still trails on the 4-set mean (72.2 vs 69.7).
-> - **It works by removing the GD loop's even/odd oscillation, not by making longer thinking pay off.** Plain GD leaves 29.6% of rp_val tokens in a 2-cycle at t = 31; every EMA and heavy-ball arm leaves ≈ 0%. For the selected arm, more steps still hurt (k = 5 is 5.8% worse than k = 3, M3 not supported). Larger μ moves the optimum to k = 5–7 instead: `ema_m0.9` at k = 6 gives 71.6, post hoc.
-> - **Self-verification remains unhelpful at the trained length (M5 not supported), but it is no longer harmful.** BoN-10 vs 1 sample is −1.6% with EMA vs −15.3% with GD. At k = 5 with EMA, BoN helps on all 5 sets (+0.8% to +5.1%), the first positive BoN result in our reproductions (post hoc). Heavy-ball with μ ≥ 0.5 diverges, because its effective step α/(1−μ) is too large. Phase 3 (retraining) is **not triggered**, since M1 holds.
+> - **Bias-corrected EMA momentum (μ = 0.5) is a free, sizeable win at the trained step count.** On the final `s2_paper` checkpoint, with the same 3 forward passes, mean OOD perplexity falls from **82.76 to 72.21 (−12.7%)**. The paired 95% CI is below zero on all 5 sets, from −2.6% ppl in distribution to −19.8% on BB Math QA. Larger GD steps do not explain it (the best GD configuration over every α ≥ 5 and k reaches only 78.0); smaller steps were not tested. S2 now beats T++ on BB Math QA (70.9 vs 80.3), though it still trails on the 4-set mean (72.2 vs 69.7).
+> - **It coincides with removing the GD loop's even/odd oscillation, not with making longer thinking pay off.** Plain GD leaves 29.6% of rp_val tokens in a 2-cycle at t = 31; every EMA and heavy-ball arm leaves ≈ 0%. For the selected arm, more steps still hurt (k = 5 is 5.8% worse than k = 3, M3 not supported). Larger μ moves the optimum to k = 4–7 instead: `ema_m0.9` at k = 6 gives 71.6, post hoc.
+> - **Self-verification remains unhelpful at the trained length (M5 not supported), but it is no longer harmful.** BoN-10 vs 1 sample is −1.6% with EMA vs −15.3% with GD. At k = 5 with EMA, BoN helps on all 5 sets (+0.8% to +5.1%; post hoc, no CI, Dyck's +0.8% may be noise). Heavy-ball with μ ≥ 0.5 degrades badly (μ = 0.9 diverges), because its effective step α/(1−μ) is too large. Phase 3 (retraining) is **not triggered**, since M1 holds.
 
 ## 1. Setup
 
@@ -25,7 +25,7 @@ tags: [ebt, momentum, inference, thinking-study, ood]
 | Compute | 65 single-trajectory runs (32 steps) + 20 BoN runs (10 candidates), GPUs 0, 2, 3, ≈ 1.5 h wall-clock |
 
 **Reproduction check:** `gd_a5` reproduces the earlier pipeline exactly.
-- The per-token log-probs match `../results/q3` within 1e-5 (a unit test).
+- The per-token arrays are bit-identical to `../results/q3` (max abs difference 0.0; the unit test checks 1e-5).
 - The mean OOD ppl matches `../report/result.md` at k = 2 / 3 (91.68 / 82.76).
 - The BoN-2 / 5 / 10 values match the paper-scale Fig. 6a analogue (84.33 / 90.03 / 95.40).
 
@@ -36,7 +36,7 @@ tags: [ebt, momentum, inference, thinking-study, ood]
 | # | Claim | Result | Supported if | Verdict |
 |---|---|---|---|---|
 | M1 | Momentum helps at the trained length | 82.76 → 72.21 (+12.7%); CI < 0 on 4/4 OOD sets | > 2% and CI < 0 on ≥ 3/4 | **Supported** |
-| M2 | The gain is not just step size | `gd*` = `gd_a5` 82.76 vs 72.21 (+12.7%) | > 1% | **Supported** |
+| M2 | The gain is not explained by a larger step | `gd*` = `gd_a5` 82.76 vs 72.21 (+12.7%) | > 1% | **Supported** |
 | M3 | Momentum makes thinking longer useful | k = 3 72.21 → k\* = 5 76.42 (−5.8%) | > 2% | **Not supported** |
 | M4 | Momentum damps late-loop 2-cycles | 0.0% (GD 29.6%) | < 15% | **Supported** |
 | M5 | Momentum makes self-verification useful | 1 sample 72.26 → BoN-10 73.43 (−1.6%) | > 0 | **Not supported** |
@@ -83,10 +83,11 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 
 ![rp_val ΔCE vs gd_a5 at k = 3](figures/grid_heatmap.png)
 
-- **Larger GD steps do not reproduce the gain.**
+- **Larger GD steps do not reproduce the gain. Smaller ones were not tested.**
   - At k = 3, α = 7.5 is already worse than the trained α = 5, and α ≥ 10 is much worse. So `gd*` is the baseline itself.
   - Checked post hoc over every α and k > 1 (choosing on OOD, which favours GD), the best GD configuration is `gd_a7.5` at k = 2 with 78.0. That is still 7.4% worse than `ema_m0.5` at k = 3.
-- **Heavy-ball is the step-size confound in action.** Its effective step α Σμ^i grows with t, so μ = 0.3 is near GD and μ ≥ 0.5 diverges (μ = 0.9 reaches ppl > 10⁸ at k = 32). The bias-corrected EMA keeps the step length and only averages the direction. That isolates the useful part.
+- **Heavy-ball is the step-size confound in action.** Its effective step α Σμ^i grows with t, so μ = 0.3 is near GD, μ = 0.5 and 0.7 settle on much worse plateaus (≈ 119 and ≈ 850), and μ = 0.9 diverges (ppl > 10⁸ at k = 32).
+- **The bias-corrected EMA is not purely direction averaging.** For a constant gradient it keeps the GD step length. When gradients alternate, which is exactly the 2-cycle regime here, the average partly cancels, so the *effective step is also smaller* (e.g. u₁ = (0.5 g₀ + g₁)/1.5). The grid has no GD arm with α < 5 and no decaying α. So "EMA helps" cannot yet be separated from "the trained α = 5 is too large at inference, and a smaller or damped step helps" (§4, step 1).
 
 ### 2.4 Why it helps: the GD loop oscillates (M3, M4)
 
@@ -98,7 +99,7 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
   - With the oscillation gone, the EMA trajectory sits below the GD good phase at k = 3: rp_val 3.5184 vs 3.5446.
   - The same holds at σ = 0 (OOD 72.7 vs 77.8), so the gain is not only averaging out Langevin noise. It is larger at σ = 3 (−12.7% vs −6.6%), so some of it is.
 - **M3 fails for `arm*`.** After k = 3, `ema_m0.5` drifts up to a plateau (78.4 at k = 32), which is still below GD's plateau (83.4).
-- **μ trades early speed for the location of the optimum.** The bias-corrected average still gives weight to g₀, taken at the random initial state, so a large μ is slow early (`ema_m0.9` at k = 3: 97.2). Its optimum moves to k = 5–7 instead:
+- **μ trades early speed for the location of the optimum.** The bias-corrected average still gives weight to g₀, taken at the random initial state, so a large μ is slow early (`ema_m0.9` at k = 3: 97.2). Its optimum moves to k = 4–7 instead:
   - `ema_m0.7`: 71.8 at k = 4.
   - `ema_m0.9`: 71.6 at k = 6, the best OOD value in the whole grid (post hoc).
 - **This is "optimal k moves with μ", not "thinking longer helps".** No arm keeps improving past its optimum.
@@ -115,14 +116,14 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 | `ema_m0.5`, k = 5 | 76.49 | 75.13 | 74.42 | 74.38 | **+3.9 / +2.5 / +5.1 / +4.5 / +0.8%** |
 
 - **M5 is not supported.** At k = 3, picking the lowest-energy candidate is still slightly worse than one sample (−1.6% on the mean). But the harm shrinks about tenfold compared with GD (−15.3%).
-- **At k = 5 with EMA, BoN helps on every set** (post hoc), the first positive self-verification result across the 3.36M, 16M and 128M reproductions. It is not useful in practice: BoN-10 at k = 5 (50 passes, 74.4) is still worse than a single EMA sample at k = 3 (3 passes, 72.2).
+- **At k = 5 with EMA, BoN helps on every set** (post hoc). GD at k = 5 is already positive on two sets (val +0.4%, SQuAD +0.3%), so what is new is the sign on all five sets. There is no CI on these gains, and Dyck's +0.8% on 10.8K tokens may be noise. It is not useful in practice: BoN-10 at k = 5 (50 passes, 74.4) is still worse than a single EMA sample at k = 3 (3 passes, 72.2).
 - **A reading consistent with this, not tested:** GD candidates at k = 3 differ mostly in sharpness, and the energy prefers sharp candidates ([[report|paper-scale report]] §2.5). EMA candidates are further along a non-oscillating path, so their energy differences carry more about the target. Measuring Q2's entropy-vs-energy metrics on EMA candidates would test this.
 
 ## 3. Interpretation
 
-- **Part of the "thinking" gap in our reproduction is an optimizer problem, not a verifier problem.** The trained energy landscape plus a plain GD update produces a period-2 oscillation. A training-free, compute-neutral change of update rule recovers 12.7% OOD perplexity. That is more than the paper's own k = 2 → 3 "thinking longer" effect reproduces at σ = 3 (9.7%).
+- **Part of the "thinking" gap in our reproduction is an optimizer problem, not a verifier problem.** The trained energy landscape plus a plain GD update at the trained α produces a period-2 oscillation. A training-free, compute-neutral change of update rule recovers 12.7% OOD perplexity. That is more than the paper's own k = 2 → 3 "thinking longer" effect reproduces at σ = 3 (9.7%).
 - **The verifier itself is unchanged.** BoN at the trained length is still not useful (M5). Momentum changes the path, not E, as predicted in the plan.
-- **The update rule is a lever the paper does not explore.** The paper's inference loop is the same plain GD (Algorithm 2), so EBTs trained and evaluated this way may leave this gain unused. Whether the paper's own checkpoints oscillate is unknown.
+- **The update rule is a lever the paper does not explore.** The paper's inference loop is the same plain GD (Algorithm 2), so EBTs trained and evaluated this way may leave this gain unused. Whether the paper's own checkpoints oscillate is unknown, and whether a simpler fix (a smaller α at inference) does as well is untested.
 
 > [!warning] Limitations
 > - **One checkpoint, one training seed.** Whether EMA helps other EBT checkpoints (16M, 3.36M) is untested.
@@ -130,14 +131,16 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 > - **1,024-sequence subsets**, as in Q2/Q3, not the full sets of the Table 3 protocol (`../table3_protocol.py`). Dyck has 200 items and 10.8K tokens.
 > - **rp_val was used both to select `arm*` and to report it.** The OOD sets were never used for selection, except in the rows marked post hoc.
 > - **A coarse μ grid** (0.3–0.9 in steps of ≈ 0.2), with α fixed at 5 for the momentum arms. Nesterov is not run.
+> - **The step-size control only goes upward** (α ∈ {5, 7.5, 10, 15, 20}). A smaller α or a decaying α could explain part or all of the EMA gain (§2.3).
 
 ## 4. Possible next steps
 
 These are not run, and the choice is yours:
-1. Score `ema_m0.5` (k = 3) under the full-set Table 3 protocol (`../table3_protocol.py`) to put it on the same footing as `../report/report.md` §2.4.
-2. Check whether the gain holds on the 3.36M and 16M S2 checkpoints and across 3 noise seeds. This is cheap: about 1 GPU-hour.
-3. Run Q2 verifier metrics on EMA candidates to test the §2.5 reading.
-4. Phase 3 (retraining with momentum) is not triggered by the gate. It remains an option if the question becomes whether a landscape trained with EMA in the loop does better still.
+1. **Close the step-size question first:** GD with α ∈ {2.5, 3, 3.5, 4} and a decaying α (α_t = 5 / (t + 1)) at k = 3, on the same sequences and seeds. This needs ≈ 4 arms × 12 min on GPUs 0, 2, 3. If one of them reaches ≈ 72, the finding becomes "the trained α is too large at inference" rather than "momentum helps".
+2. Score `ema_m0.5` (k = 3) under the full-set Table 3 protocol (`../table3_protocol.py`) to put it on the same footing as `../report/report.md` §2.4.
+3. Check whether the gain holds on the 3.36M and 16M S2 checkpoints and across 3 noise seeds. This is cheap: about 1 GPU-hour.
+4. Run Q2 verifier metrics on EMA candidates to test the §2.5 reading.
+5. Phase 3 (retraining with momentum) is not triggered by the gate. It remains an option if the question becomes whether a landscape trained with EMA in the loop does better still.
 
 ## 5. Reproduction
 
