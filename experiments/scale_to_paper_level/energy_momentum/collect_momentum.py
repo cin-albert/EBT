@@ -244,13 +244,13 @@ def plot_bon(bons: dict[str, dict], path: Path) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {"gd_a5": C_EBT}
     fig, ax = plt.subplots(figsize=(5, 3.6))
-    for arm, bon in bons.items():
+    for (arm, k), bon in bons.items():
         y = [mean_ood_ppl({s: bon[s][n] for s in OOD_SETS}) for n in BON_N]
-        ax.plot(BON_N, y, "-", color=colors.get(arm, C_ARM), lw=2, marker="o", ms=5, label=arm)
+        ax.plot(BON_N, y, "-" if k == 3 else "--", color=C_EBT if arm == "gd_a5" else C_ARM, lw=2, marker="o", ms=5,
+                label=f"{arm}, k = {k}")
     ax.set_xticks(BON_N)
-    ax.set_xlabel("candidates N (lowest final energy kept), k = 3, σ = 3")
+    ax.set_xlabel("candidates N (lowest final energy kept), σ = 3")
     ax.set_ylabel("mean OOD perplexity")
     ax.legend(frameon=False, fontsize=8)
     ax.grid(alpha=0.2)
@@ -269,23 +269,40 @@ def write_result(ce: dict, tpp: dict, arms: list[str], sel: tuple[str, str, int]
          f"Selected on rp_val at k = 3, σ = 3: **arm\\* = {arm_star}**, **gd\\* = {gd_star}**, **k\\* = {k_star}**.", "",
          "## Pre-registered claims", "", "| # | Value | Supported if | Verdict |", "|---|---|---|---|"]
     L += [f"| {r['id']} | {r['value']} | {r['rule']} | {r['verdict']} |" for r in rows]
-    gate = "pending" if any(v is None for v in ok.values()) else phase3_gate(ok)
-    L += ["", f"**phase3_gate = {gate}** (M1 and M3 both not supported)", ""]
+    L += ["", f"**phase3_gate = {phase3_gate(ok)}** (M1 and M3 both not supported)", ""]
 
     L += ["## Sanity check: gd_a5 against ../report/result.md (mean OOD ppl, σ = 3)", "",
           "| k | gd_a5 here | report |", "|---|---|---|",
           f"| 2 | {ood_ppl(ce, 'gd_a5', 3.0, 2):.2f} | {OURS_FIG6A['k2']} |",
           f"| 3 | {ood_ppl(ce, 'gd_a5', 3.0, 3):.2f} | {OURS_FIG6A['k3']} |", ""]
 
+    cols = list(dict.fromkeys(["gd_a5", gd_star, arm_star]))
     L += ["## Per-set perplexity at k = 3 (σ = 3), with baselines", "",
-          "| Set | T++ paper | EBT paper | T++ ours | gd_a5 | " + f"{gd_star} | {arm_star} |", "|---|---|---|---|---|---|---|"]
+          "| Set | T++ paper | EBT paper | T++ ours | " + " | ".join(cols) + " |", "|---" * (4 + len(cols)) + "|"]
     for i, s in enumerate(SETS):
         L.append(f"| {SET_NAMES[s]} | {PAPER_TABLE3['tpp'][i]} | {PAPER_TABLE3['ebt'][i]} | {math.exp(tpp[s]):.2f} | "
-                 f"{math.exp(ce['gd_a5'][s][3.0][3]):.2f} | {math.exp(ce[gd_star][s][3.0][3]):.2f} | "
-                 f"{math.exp(ce[arm_star][s][3.0][3]):.2f} |")
+                 + " | ".join(f"{math.exp(ce[a][s][3.0][3]):.2f}" for a in cols) + " |")
     L.append(f"| Mean of 4 OOD | {np.mean(PAPER_TABLE3['tpp'][1:]):.1f} | {np.mean(PAPER_TABLE3['ebt'][1:]):.1f} | "
-             f"{mean_ood_ppl({s: tpp[s] for s in OOD_SETS}):.2f} | {ood_ppl(ce, 'gd_a5', 3.0, 3):.2f} | "
-             f"{ood_ppl(ce, gd_star, 3.0, 3):.2f} | {ood_ppl(ce, arm_star, 3.0, 3):.2f} |")
+             f"{mean_ood_ppl({s: tpp[s] for s in OOD_SETS}):.2f} | "
+             + " | ".join(f"{ood_ppl(ce, a, 3.0, 3):.2f}" for a in cols) + " |")
+
+    L += ["", f"## Paired ΔCE of {arm_star} vs gd_a5 at k = 3 (σ = 3), 95% bootstrap CI over sequences", "",
+          "| Set | ΔCE (nats) | 95% CI | % ppl improvement |", "|---|---|---|---|"]
+    for s in SETS:
+        a, g = load_single(arm_star, s, 3.0), load_single("gd_a5", s, 3.0)
+        m, lo, hi = paired_bootstrap(ce_after_k(a, 3), ce_after_k(g, 3), a["seq_id"])
+        L.append(f"| {SET_NAMES[s]} | {m:+.4f} | [{lo:+.4f}, {hi:+.4f}] | {100 * (1 - math.exp(m)):+.1f}% |")
+
+    best = {nz: min(((a, k) for a in arms for k in K_LIST if k > 1), key=lambda ak: ood_ppl(ce, ak[0], nz, ak[1]))
+            for nz in NOISES}
+    best_gd = {nz: min(((a, k) for a in arms if a.startswith("gd_") for k in K_LIST if k > 1),
+                       key=lambda ak: ood_ppl(ce, ak[0], nz, ak[1])) for nz in NOISES}
+    L += ["", "## Post-hoc (not pre-registered): best configuration over all α / μ and k > 1, chosen on OOD", "",
+          "| σ | best GD (arm, k) | mean OOD ppl | best overall (arm, k) | mean OOD ppl |", "|---|---|---|---|---|"]
+    for nz in NOISES:
+        (ga, gk), (ba, bk) = best_gd[nz], best[nz]
+        L.append(f"| {nz:g} | {ga}, k = {gk} | {ood_ppl(ce, ga, nz, gk):.2f} | {ba}, k = {bk} | "
+                 f"{ood_ppl(ce, ba, nz, bk):.2f} |")
 
     for nz in NOISES:
         L += ["", f"## Mean OOD ppl vs k (σ = {nz:g}; geometric mean in the last column at k = 3)", "",
@@ -302,11 +319,11 @@ def write_result(ce: dict, tpp: dict, arms: list[str], sel: tuple[str, str, int]
     L += [f"| {a} | {100 * two_cycle_share(a):.1f}% |" for a in arms]
 
     if bons:
-        L += ["", "## Self-verification (k = 3, σ = 3): mean OOD ppl and per-set % improvement of BoN-10 over 1 sample", "",
-              "| Arm | " + " | ".join(f"BoN-{n}" for n in BON_N) + " | " + " | ".join(SET_NAMES[s] for s in SETS) + " |",
+        L += ["", "## Self-verification (σ = 3): mean OOD ppl and per-set % improvement of BoN-10 over 1 sample", "",
+              "| Arm, k | " + " | ".join(f"BoN-{n}" for n in BON_N) + " | " + " | ".join(SET_NAMES[s] for s in SETS) + " |",
               "|---" * (len(BON_N) + len(SETS) + 1) + "|"]
-        for arm, bon in bons.items():
-            L.append(f"| {arm} | " + " | ".join(f"{mean_ood_ppl({s: bon[s][n] for s in OOD_SETS}):.2f}" for n in BON_N)
+        for (arm, k), bon in bons.items():
+            L.append(f"| {arm}, k = {k} | " + " | ".join(f"{mean_ood_ppl({s: bon[s][n] for s in OOD_SETS}):.2f}" for n in BON_N)
                      + " | " + " | ".join(f"{pct_improvement(bon[s][1], bon[s][10]):+.1f}%" for s in SETS) + " |")
     return "\n".join(L) + "\n"
 
@@ -323,7 +340,8 @@ def main():
         return
     tpp = tpp_ce()
     rows, ok = claims(ce, tpp, *sel)
-    bons = {a: b for a in dict.fromkeys(["gd_a5", sel[0]]) if (b := bon_results(a, 3)) is not None}
+    bons = {(a, k): b for a in dict.fromkeys(["gd_a5", sel[0]]) for k in dict.fromkeys([3, sel[2]])
+            if (b := bon_results(a, k)) is not None}
     (REPORT / "figures").mkdir(parents=True, exist_ok=True)
     (REPORT / "result.md").write_text(write_result(ce, tpp, arms, sel, rows, ok, bons))
     plot_ce_vs_k(ce, tpp, sel[0], sel[1], REPORT / "figures/ce_vs_k.png")

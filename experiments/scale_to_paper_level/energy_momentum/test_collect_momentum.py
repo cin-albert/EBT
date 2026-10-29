@@ -58,6 +58,11 @@ def test_gate_flag():
     assert not phase3_gate({"M1": False, "M3": True})
 
 
+def test_gate_ignores_pending_m5():
+    assert phase3_gate({"M1": True, "M3": False, "M5": None}) is False
+    assert phase3_gate({"M1": False, "M3": False, "M5": None}) is True
+
+
 def test_bon_ce_picks_lowest_energy_among_first_n():
     e = np.array([[1.0, 0.0], [0.0, 1.0], [-1.0, -1.0]])
     logp = np.array([[-1.0, -2.0], [-3.0, -4.0], [-5.0, -6.0]])
