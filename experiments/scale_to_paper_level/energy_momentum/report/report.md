@@ -138,6 +138,9 @@ Sanity checks:
 
 Full table, including Lightning's epoch aggregation: `report/table3.md`.
 
+> [!note] Why "ours" differs from `../report/report.md` §2.4
+> §2.4 scores the OOD sets on the 1,024-sequence Q2 subsets: GSM8K 159,980 of 207,055 tokens, SQuAD 181,426 of 1,060,969, BB Math QA 81,451 of 612,128. Here every item is scored, so T++ and S2 move by 0.4–1.6% (e.g. GSM8K T++ 40.38 → 39.85). Dyck has only 200 items, so the subset is the full set: T++ is identical (107.96) and S2 differs only through the Langevin draws (142.11 with Q2's seeds and batch 16, 142.13 with the protocol's seeds and batch 32). Validation is the training log in both (29.75, 33.94). The full-set S2 and T++ numbers equal `../results/table3_protocol/summary.json` (written 2026-10-28), which §2.4 does not cite.
+
 ![Table 3: paper vs reproduction vs S2 + EMA](figures/table3_vs_paper_ema.png)
 
 - **The 1,024-sequence result holds on the full sets.** EMA lowers perplexity on all 5 sets, and every paired CI excludes 1. The per-set gains match §2.2 within 0.3 points: val −2.7%, GSM8K −5.1%, SQuAD −4.2%, Dyck −14.3%, BB Math QA −19.7%.
