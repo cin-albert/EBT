@@ -7,7 +7,7 @@ tags: [ebt, momentum, inference, thinking-study, ood]
 # Energy momentum — training-free momentum in EBT inference
 
 > [!summary] TL;DR
-> - **Bias-corrected EMA momentum (μ = 0.5) is a free, sizeable win at the trained step count.** On the final `s2_paper` checkpoint, with the same 3 forward passes, mean OOD perplexity falls from **82.76 to 72.21 (−12.7%)**. The paired 95% CI is below zero on all 5 sets, from −2.6% ppl in distribution to −19.8% on BB Math QA. Larger GD steps do not explain it (the best GD configuration over every α ≥ 5 and k reaches only 78.0); smaller steps were not tested. S2 now beats T++ on BB Math QA (70.9 vs 80.3), though it still trails on the 4-set mean (72.2 vs 69.7).
+> - **Bias-corrected EMA momentum (μ = 0.5) is a free, sizeable win at the trained step count.** On the final `s2_paper` checkpoint, with the same 3 forward passes, mean OOD perplexity falls from **82.76 to 72.21 (−12.7%)**. The paired 95% CI is below zero on all 5 sets, from −2.6% ppl in distribution to −19.8% on BB Math QA. Larger GD steps do not explain it (the best GD configuration over every α ≥ 5 and k reaches only 78.0); smaller steps were not tested. S2 now beats T++ on BB Math QA (70.9 vs 80.3), though it still trails on the 4-set mean (72.2 vs 69.7). Under the full-set Table 3 protocol (§2.6), the gain holds on every set (paired CIs exclude 0), and S2 + EMA (71.9 OOD mean) is at or below the paper's EBT on 4 of 5 sets.
 > - **It coincides with removing the GD loop's even/odd oscillation, not with making longer thinking pay off.** Plain GD leaves 29.6% of rp_val tokens in a 2-cycle at t = 31; every EMA and heavy-ball arm leaves ≈ 0%. For the selected arm, more steps still hurt (k = 5 is 5.8% worse than k = 3, M3 not supported). Larger μ moves the optimum to k = 4–7 instead: `ema_m0.9` at k = 6 gives 71.6, post hoc.
 > - **Self-verification remains unhelpful at the trained length (M5 not supported), but it is no longer harmful.** BoN-10 vs 1 sample is −1.6% with EMA vs −15.3% with GD. At k = 5 with EMA, BoN helps on all 5 sets (+0.8% to +5.1%; post hoc, no CI, Dyck's +0.8% may be noise). Heavy-ball with μ ≥ 0.5 degrades badly (μ = 0.9 diverges), because its effective step α/(1−μ) is too large. Phase 3 (retraining) is **not triggered**, since M1 holds.
 
@@ -119,6 +119,37 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 - **At k = 5 with EMA, BoN helps on every set** (post hoc). GD at k = 5 is already positive on two sets (val +0.4%, SQuAD +0.3%), so what is new is the sign on all five sets. There is no CI on these gains, and Dyck's +0.8% on 10.8K tokens may be noise. It is not useful in practice: BoN-10 at k = 5 (50 passes, 74.4) is still worse than a single EMA sample at k = 3 (3 passes, 72.2).
 - **A reading consistent with this, not tested:** GD candidates at k = 3 differ mostly in sharpness, and the energy prefers sharp candidates ([[report|paper-scale report]] §2.5). EMA candidates are further along a non-oscillating path, so their energy differences carry more about the target. Measuring Q2's entropy-vs-energy metrics on EMA candidates would test this.
 
+### 2.6 Full-set Table 3 protocol
+
+`ema_m0.5` at k = 3, σ = 3 is scored on every item of the 4 OOD sets and on all 33,000 validation documents, following `../table3_protocol.py` (batch 32 in dataset order, `torch.manual_seed(b)` per batch, token perplexity). T++ and S2 are rescored in the same script.
+
+Sanity checks:
+- S2 (arm `gd_a5`) and T++ reproduce `../results/table3_protocol` **bit-exactly** on all 4 OOD sets (max |ΔCE| = 0.0).
+- On validation, both reproduce the values logged in training at step 1M (T++ 29.75, S2 33.94).
+
+| Set | Seqs | T++ paper | EBT paper | T++ ours | S2 ours | **S2 + EMA** | EMA / S2 [95% CI] | vs EBT paper | vs T++ ours |
+|---|---|---|---|---|---|---|---|---|---|
+| Pretrain (val) | 33,000 | 31.36 | 33.43 | 29.75 | 33.94 | **33.03** | 0.973 [0.973, 0.974] | −1.2% | +11.0% |
+| GSM8K | 1,319 | 49.6 | 43.3 | 39.85 | 43.80 | **41.56** | 0.949 [0.947, 0.952] | −4.0% | +4.3% |
+| SQuAD | 5,928 | 52.3 | 53.1 | 49.68 | 56.11 | **53.76** | 0.958 [0.957, 0.959] | +1.2% | +8.2% |
+| BB Math QA | 7,629 | 79.8 | 72.6 | 79.03 | 87.58 | **70.36** | 0.803 [0.802, 0.805] | −3.1% | −11.0% |
+| BB Dyck | 200 | 131.5 | 125.3 | 107.96 | 142.13 | **121.81** | 0.857 [0.840, 0.873] | −2.8% | +12.8% |
+| Mean of 4 OOD sets | | 78.3 | 73.6 | 69.13 | 82.40 | **71.87** | 0.872 | −2.3% | +4.0% |
+
+Full table, including Lightning's epoch aggregation: `report/table3.md`.
+
+![Table 3: paper vs reproduction vs S2 + EMA](figures/table3_vs_paper_ema.png)
+
+- **The 1,024-sequence result holds on the full sets.** EMA lowers perplexity on all 5 sets, and every paired CI excludes 1. The per-set gains match §2.2 within 0.3 points: val −2.7%, GSM8K −5.1%, SQuAD −4.2%, Dyck −14.3%, BB Math QA −19.7%.
+- **S2 + EMA closes the gap to the paper's EBT.**
+  - Plain S2 was 1.5–21% worse than the paper's EBT on every set.
+  - S2 + EMA is 1.2–4.0% *better* on 4 sets (val, GSM8K, BB Math QA, Dyck) and 1.2% worse on SQuAD. The 4-set OOD mean is 71.9 vs 73.6.
+  - The paper does not state its inference k or σ (`../report/report.md` §2.4), and the EMA update is ours, not the paper's. This shows that our checkpoint can reach the paper's numbers with a different update rule, not that the paper's EBT oscillates.
+- **The C7 count depends on which T++ is the reference.**
+  - Against the paper's T++, S2 + EMA wins 3 of 4 OOD sets: GSM8K 41.6 vs 49.6, BB Math QA 70.4 vs 79.8, Dyck 121.8 vs 131.5. The paper reports the same count.
+  - Against our own T++, it wins only BB Math QA (−11.0%), and it trails on validation by 11%.
+  - Only the comparison against our own T++ comes from the same data build and evaluation, so C7 stays **not supported** under the pre-registered comparison.
+
 ## 3. Interpretation
 
 - **Part of the "thinking" gap in our reproduction is an optimizer problem, not a verifier problem.** The trained energy landscape plus a plain GD update at the trained α produces a period-2 oscillation. A training-free, compute-neutral change of update rule recovers 12.7% OOD perplexity. That is more than the paper's own k = 2 → 3 "thinking longer" effect reproduces at σ = 3 (9.7%).
@@ -128,7 +159,7 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 > [!warning] Limitations
 > - **One checkpoint, one training seed.** Whether EMA helps other EBT checkpoints (16M, 3.36M) is untested.
 > - **One noise seed set.** The bootstrap CIs resample sequences only; all arms share one set of noise draws (paired by design), so the variance over noise seeds is not in the CI.
-> - **1,024-sequence subsets**, as in Q2/Q3, not the full sets of the Table 3 protocol (`../table3_protocol.py`). Dyck has 200 items and 10.8K tokens.
+> - **1,024-sequence subsets** for the grid, BoN and claims M1–M6, as in Q2/Q3. Only `ema_m0.5` at k = 3 was rescored on the full sets (§2.6). Dyck has 200 items and 10.8K tokens even in full.
 > - **rp_val was used both to select `arm*` and to report it.** The OOD sets were never used for selection, except in the rows marked post hoc.
 > - **A coarse μ grid** (0.3–0.9 in steps of ≈ 0.2), with α fixed at 5 for the momentum arms. Nesterov is not run.
 > - **The step-size control only goes upward** (α ∈ {5, 7.5, 10, 15, 20}). A smaller α or a decaying α could explain part or all of the EMA gain (§2.3).
@@ -137,17 +168,16 @@ Mean OOD ppl at σ = 3, rp_val CE at k = 3 ([full grid](result.md)):
 
 These are not run, and the choice is yours:
 1. **Close the step-size question first:** GD with α ∈ {2.5, 3, 3.5, 4} and a decaying α (α_t = 5 / (t + 1)) at k = 3, on the same sequences and seeds. This needs ≈ 4 arms × 12 min on GPUs 0, 2, 3. If one of them reaches ≈ 72, the finding becomes "the trained α is too large at inference" rather than "momentum helps".
-2. Score `ema_m0.5` (k = 3) under the full-set Table 3 protocol (`../table3_protocol.py`) to put it on the same footing as `../report/report.md` §2.4.
-3. Check whether the gain holds on the 3.36M and 16M S2 checkpoints and across 3 noise seeds. This is cheap: about 1 GPU-hour.
-4. Run Q2 verifier metrics on EMA candidates to test the §2.5 reading.
-5. Phase 3 (retraining with momentum) is not triggered by the gate. It remains an option if the question becomes whether a landscape trained with EMA in the loop does better still.
+2. Check whether the gain holds on the 3.36M and 16M S2 checkpoints and across 3 noise seeds. This is cheap: about 1 GPU-hour.
+3. Run Q2 verifier metrics on EMA candidates to test the §2.5 reading.
+4. Phase 3 (retraining with momentum) is not triggered by the gate. It remains an option if the question becomes whether a landscape trained with EMA in the loop does better still.
 
 ## 5. Reproduction
 
 ```bash
 cd code/EBT/experiments/scale_to_paper_level/energy_momentum
 PY=/home/quangnx/miniconda3/envs/ebt312/bin/python
-$PY -m pytest -q                                               # 23 tests; the GPU test checks gd_a5 against ../results/q3
+$PY -m pytest -q                                               # 28 tests; GPU tests check gd_a5 against ../results/{q3,table3_protocol}
 GPU_ID=0 ARMS="gd_a5 gd_a7.5 gd_a10 gd_a15" bash run_all.sh    # ~1 h per shard; 3 shards on GPUs 0, 2, 3
 GPU_ID=2 ARMS="gd_a20 hb_m0.3 hb_m0.5 hb_m0.7" bash run_all.sh
 GPU_ID=3 ARMS="hb_m0.9 ema_m0.3 ema_m0.5 ema_m0.7 ema_m0.9" bash run_all.sh
@@ -157,4 +187,6 @@ GPU_ID=0 ARMS="gd_a5" KS="3 5" bash run_bon_all.sh
 GPU_ID=2 ARMS="ema_m0.5" KS="3" bash run_bon_all.sh
 GPU_ID=3 ARMS="ema_m0.5" KS="5" bash run_bon_all.sh
 $PY collect_momentum.py                                        # report/result.md, report/figures/*.png
+for x in "0 tpp" "2 s2" "3 ema"; do set -- $x; GPU_ID=$1 RUN=$2 bash run_table3.sh & done; wait   # ~15 min
+PYTHONPATH=$PYTHONPATH:$PWD/.. $PY table3_ema.py collect      # report/table3.md, figures/table3_vs_paper_ema.png
 ```
