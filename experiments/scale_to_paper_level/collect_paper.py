@@ -25,6 +25,10 @@ TOKENS_PER_STEP = 128 * 256  # global batch x context
 BON_N = (2, 5, 10)
 STEPS_PER_CANDIDATE = 3
 C_TPP, C_EBT, MUTED = "#eb6834", "#2a78d6", "#8a8984"
+SET_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]  # categorical slots 1-5, in SETS order
+SET_NAMES = {"rp_val": "Pretrain (val)", "gsm8k": "GSM8K", "squad": "SQuAD",
+             "bigbench_elementary_math_qa": "BB Math QA", "bigbench_dyck_languages": "BB Dyck"}
+PAPER_TABLE3 = {"tpp": [31.36, 49.6, 52.3, 79.8, 131.5], "ebt": [33.43, 43.3, 53.1, 72.6, 125.3]}  # in SETS order
 PAPER = {"C1": "+0.064", "C2": "≈ 20%", "C3": "≈ 11%", "C4": "4–8% → 10–14%", "C5": "qualitative",
          "C6": "linear, 12% → 23%", "C7": "3 of 4"}
 
@@ -230,6 +234,45 @@ def plot(r: dict) -> None:
     a2.axhline(0.114, color=MUTED, ls=":", lw=0.8)
     style(a2, "Step (k)", "S2 − T++ CE", "Gap (dashed: C1 threshold 0.149; dotted: 0.114)")
     save(fig, "gap_curve")
+    plot_vs_paper(r)
+
+
+def table3_ours(r: dict) -> dict:
+    """Our Table 3 ppl in SETS order: pretrain = full validation at the Table 3 step; OOD = eval subset, S2 one sample."""
+    ce = r["ce"]
+    return {"tpp": [math.exp(r["tpp_curve"][r["tpp_step"]]), *(math.exp(ce[s, "tpp"]) for s in OOD_SETS)],
+            "ebt": [math.exp(r["s2_curve"][r["s2_step"]]), *(math.exp(ce[s, "single"]) for s in OOD_SETS)]}
+
+
+def plot_vs_paper(r: dict) -> None:
+    """Slope chart per model: paper's Table 3 (hollow) -> ours (filled), one color per set, log ppl axis."""
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import FixedLocator, NullLocator, ScalarFormatter
+
+    ours = table3_ours(r)
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.8), sharey=True)
+    for ax, model, title in zip(axes, ("tpp", "ebt"), ("Transformer++", "EBT (System 2)")):
+        for s, c, p, o in zip(SETS, SET_COLORS, PAPER_TABLE3[model], ours[model]):
+            ax.plot([0, 1], [p, o], color=c, lw=2, zorder=2)
+            ax.plot(0, p, "o", ms=8, mfc="white", mec=c, mew=2, zorder=3)
+            ax.plot(1, o, "o", ms=8, color=c, mec="white", mew=1.5, zorder=3)
+            ax.annotate(f"{SET_NAMES[s]}  {100 * (o / p - 1):+.0f}%", (1, o), xytext=(10, 0),
+                        textcoords="offset points", va="center", fontsize=8, color="#0b0b0b")
+        ax.set_yscale("log")
+        ax.yaxis.set_major_locator(FixedLocator([30, 40, 50, 70, 100, 140]))
+        ax.yaxis.set_major_formatter(ScalarFormatter())
+        ax.yaxis.set_minor_locator(NullLocator())
+        ax.set_xticks([0, 1], ["Paper (Table 3)", "Ours"])
+        ax.set_xlim(-0.25, 1.85)
+        style(ax, "", "Perplexity (log scale)" if model == "tpp" else "", title)
+        ax.grid(axis="x", visible=False)
+    handles = [Line2D([], [], color=c, lw=2, marker="o", ms=6, label=SET_NAMES[s]) for s, c in zip(SETS, SET_COLORS)]
+    fig.legend(handles=handles, loc="upper center", ncol=5, frameon=False, fontsize=8, bbox_to_anchor=(0.5, 0.94))
+    fig.suptitle("Table 3 perplexity: paper vs reproduction (xxs, 128M sequences; label = ours vs paper)", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    (REPORT / "figures").mkdir(parents=True, exist_ok=True)
+    fig.savefig(REPORT / "figures" / "table3_vs_paper.png", dpi=160)
+    plt.close(fig)
 
 
 def main() -> None:
